@@ -46,32 +46,115 @@ let roadSquares = [];
 // Toggle: whether the road squares are moving (press E to toggle)
 let moving = true;
 
+// —— UI：速度控制滑块 + 文字标签 ——
+// UI: speed slider + labels
+let speedSlider;        // p5.js slider element
+let speedLabel;         // “Speed 调整” 标签
+let speedInfo;          // 显示 Speed × ... (E/R) 的标签
+let speedFactor = 1.0;  // 全局速度系数，乘到每个方块的 speed 上
+                        // Global speed factor, multiplies each square's base speed
+
+
+// 计算当前窗口下画布应有的尺寸（保持正方形 + 限制最大 900）
+// Compute canvas size for current window (square, max 900)
+function calcCanvasSize(){
+  // 预留一点边距，防止贴边 | leave some margins
+  let maxSize = 900;
+  let size = min(windowWidth - 40, windowHeight - 120, maxSize);
+  size = max(size, 300); // 最小 300，避免太小 | min 300
+  return size;
+}
+
+// 更新滑块和标签的位置：放在画布下面同一行
+// Update slider and labels positions: place them on one row below the canvas
+function updateSliderPosition(){
+  const y = height + 20;
+  if (speedLabel){
+    // 标签在左边 | label on the left
+    speedLabel.position(20, y + 3);
+  }
+  if (speedSlider){
+    // 滑块在标签右侧 | slider to the right of label
+    speedSlider.position(100, y);
+  }
+  if (speedInfo){
+    // ★ info 文本再往右一点 | info text further to the right
+    speedInfo.position(250, y + 3);
+  }
+}
+
 
 // --------------------------------------------------------
 // p5.js 标准入口
 // --------------------------------------------------------
 function setup(){
-  createCanvas(W, H);
+  const size = calcCanvasSize();
+  createCanvas(size, size);  // 实际画布大小随屏幕变化 | canvas size adapts to screen
   noStroke();
   createNewLayout(); // 生成一次完整布局 | generate a full layout once
+
+  // 创建一个 UI 滑块，用来控制速度
+  // Create a UI slider to control movement speed
+  // 范围 0–300，默认 100，对应 speedFactor = 0–3.0
+  speedSlider = createSlider(0, 300, 100);
+
+  // 在滑块旁边加一个“Speed 调整”的文字标签
+  // Label next to the slider
+  speedLabel = createSpan('Speed change');
+  speedLabel.style('font-size', '12px');
+  speedLabel.style('font-family', 'sans-serif');
+
+  // 用于显示 "Speed × ... (E: pause / R: reset)" 的标签
+  // label to show "Speed × ... (E: pause / R: reset)"
+  speedInfo = createSpan('');
+  speedInfo.style('font-size', '14px');
+  speedInfo.style('font-family', 'sans-serif');
+
+  updateSliderPosition();
 }
 
+// 当窗口尺寸变化时，自动调整画布大小和滑块位置
+// When the window is resized, adapt canvas size and slider position
+function windowResized(){
+  const size = calcCanvasSize();
+  resizeCanvas(size, size);
+  updateSliderPosition();
+}
+
+
+// 每一帧重画底图 + 小方块当前状态
+// Each frame: redraw base + road squares
 function draw(){
-  // 每一帧重画底图 + 小方块当前状态
-  // Each frame: redraw base + road squares at current positions
-  background('#f2d31b');   // 黄色背景 | yellow background
+  background('#f2d31b');   // 整个屏幕底色 | screen background
+
+  // 从滑块读取速度系数（0~300 → 0.00~3.00）
+  // Read speed factor from slider (0~300 → 0.00~3.00)
+  speedFactor = speedSlider.value() / 100.0;
+
+  // 把坐标缩放到当前画布大小：
+  // 逻辑空间是 900×900，这里按比例缩放到实际画布的 width×height
+  // Scale logical 900×900 space into the current canvas size
+  push();
+  const s = width / W;   // 因为 width===height，直接用 width/W 即可 | since width==height
+  scale(s);
 
   drawWhiteGrid();         // 10×10 白格 | 10×10 white grid
 
-  // 小方块是否更新位置，由 moving 决定
-  // Update movement only if moving is true
   if (moving){
-    updateRoadSquares();
+    updateRoadSquares();   // 更新位置（用逻辑空间坐标）| update in logical space
   }
   drawRoadSquares();       // 画在黄色道路上的小方块 | draw road squares
 
   drawConnectors();        // 白色连通桥 | white connectors
   drawColorBlocks();       // 白格内部大色块 | coloured strips inside cells
+  pop();
+
+  // 不再在画布里画文字，而是更新 speedInfo 标签的文本
+  // Instead of drawing text on canvas, update the HTML label next to the slider
+  const infoText = 'Speed × ' + nf(speedFactor, 1, 2) + '  (E: pause / R: reset)';
+  if (speedInfo){
+    speedInfo.html(infoText);
+  }
 }
 
 
@@ -87,8 +170,8 @@ function keyPressed(){
 
 
 // --------------------------------------------------------
-// 布局生成：缝隙、白格、道路小方块、大色块、连通桥
-// Layout generation: gaps, white grid, road squares, big blocks, connectors
+// 布局生成：缝隙、白格、道路小方块、大色块、连通桥（都在 900×900 逻辑空间里）
+// Layout generation in the 900×900 logical space
 // --------------------------------------------------------
 function createNewLayout(){
   // 1) 缝隙随机抖动 | random jitter for gaps
@@ -148,7 +231,8 @@ function createNewLayout(){
 
 
 // --------------------------------------------------------
-// 绘制部分：白格 / 连通桥 / 大色块 / 道路小方块
+// 绘制部分：白格 / 连通桥 / 大色块 / 道路小方块（都基于逻辑坐标，draw() 里整体缩放）
+// Drawing: white grid / connectors / big blocks / road squares (all in logical space)
 // --------------------------------------------------------
 
 // 画两层 10×10 白色网格（保持你原来的“刷两遍白块”习惯）
@@ -228,7 +312,8 @@ function generateRoadSquares(){
           y: y,
           size: s,
           color,
-          speed
+          speed      // 基础速度（在 updateRoadSquares 里会乘以 speedFactor）
+                     // Base speed (multiplied by speedFactor in updateRoadSquares)
         });
       }
       y += s + random(V_GAP_MIN, V_GAP_MAX);
@@ -265,12 +350,16 @@ function generateRoadSquares(){
 // Update road squares so they move along the roads and wrap around edges
 function updateRoadSquares(){
   for (const s of roadSquares){
+    // 这里用基础速度 * 全局 speedFactor
+    // Use base speed * global speedFactor
+    const v = s.speed * speedFactor;
+
     if (s.type === 'v'){          // 在竖向道路上 | on a vertical road
-      s.y += s.speed;
+      s.y += v;
       if (s.y > H)       s.y = -s.size;
       if (s.y < -s.size) s.y = H;
     } else {                      // 在横向道路上 | on a horizontal road
-      s.x += s.speed;
+      s.x += v;
       if (s.x > W)       s.x = -s.size;
       if (s.x < -s.size) s.x = W;
     }
@@ -381,8 +470,8 @@ function generateBigBlocks(opts){
   for (const b of bigBlocks){
     if (random() > PROB2) continue;
 
-    const COLORS = ['#c63b2d', '#2a59b6', '#f2d31b'];
-    const altChoices = COLORS.filter(c => c !== b.color);
+    const COLORS2 = ['#c63b2d', '#2a59b6', '#f2d31b'];
+    const altChoices = COLORS2.filter(c => c !== b.color);
     const alt = random(altChoices);
 
     if (b.mode === 'equalHeight'){
