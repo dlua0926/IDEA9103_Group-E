@@ -55,6 +55,17 @@ let speedFactor = 1.0;  // 全局速度系数，乘到每个方块的 speed 上
                         // Global speed factor, multiplies each square's base speed
 
 
+// ========== 新增：Pacman 功能相关变量 ==========
+// Pacman-related variables (Time-Based Animation Feature)
+let pacman = null;           // Pacman 对象 | Pacman object
+let ghosts = [];             // 幽灵数组 | Array of ghost objects
+let mouthTimer = 0;          // 嘴巴动画计时器 | Mouth animation timer
+let mouthOpenAngle = 0;      // 当前嘴巴张开角度 | Current mouth open angle
+let ghostModeTimer = 0;      // 幽灵模式切换计时器 | Ghost mode switch timer
+let ghostMode = 'chase';     // 幽灵模式：'chase' 或 'scatter' | Ghost mode: 'chase' or 'scatter'
+const MOUTH_CYCLE = 300;     // 嘴巴开合周期（毫秒）| Mouth open/close cycle (ms)
+const GHOST_MODE_CYCLE = 5000; // 幽灵模式切换周期（毫秒）| Ghost mode switch cycle (ms)
+
 // 计算当前窗口下画布应有的尺寸（保持正方形 + 限制最大 900）
 // Compute canvas size for current window (square, max 900)
 function calcCanvasSize(){
@@ -143,10 +154,22 @@ function draw(){
   if (moving){
     updateRoadSquares();   // 更新位置（用逻辑空间坐标）| update in logical space
   }
+    
+    // 新增：更新 Pacman 相关动画（基于时间）
+    // Update Pacman animations (time-based)
+    updatePacmanMouth();   // 更新嘴巴动画
+    updateGhostMode();     // 更新幽灵模式
+    updatePacman();        // 更新 Pacman 位置
+    updateGhosts();        // 更新幽灵位置
   drawRoadSquares();       // 画在黄色道路上的小方块 | draw road squares
 
+  
+  // 新增：绘制 Pacman 和 Ghosts
+  // Draw Pacman and Ghosts
   drawConnectors();        // 白色连通桥 | white connectors
   drawColorBlocks();       // 白格内部大色块 | coloured strips inside cells
+    drawPacman();
+    drawGhosts();
   pop();
 
   // 不再在画布里画文字，而是更新 speedInfo 标签的文本
@@ -227,6 +250,10 @@ function createNewLayout(){
     aspectThresh: 1.15
   });
   generateRoadSquares();     // 黄色道路上的小方块（会动的那批）| moving road squares
+  
+  // 新增：初始化 Pacman 游戏
+  // Initialize Pacman game
+  initializePacmanGame();
 }
 
 
@@ -531,4 +558,279 @@ function randomizeWithBias(out, n, total, minV, maxV, spread, posW){
   const s = out.reduce((a,b)=>a+b, 0);
   const k = total / s;
   for (let i = 0; i < n; i++) out[i] *= k;
+}
+
+// ========== 新增：Pacman 相关函数 ==========
+// Pacman-related functions (Time-Based Animation Feature)
+
+// 初始化 Pacman 和 Ghosts
+// Initialize Pacman and Ghosts
+function initializePacmanGame(){
+  // 创建 Pacman：在某个横向道路上
+  // Create Pacman on a horizontal road
+  if (ROWS > 1) {
+    const r = int(random(0, ROWS - 1));
+    const y0 = ys[r] + rowH[r];
+    const size = gapY[r] * 2;  // 变大一倍 | Double the size
+    pacman = {
+      x: W / 2,
+      y: y0 + gapY[r] / 2 - size / 2, // 居中
+      size: size,
+      speed: 1.5,
+      direction: 1,  // 1 = 向右, -1 = 向左 | 1 = right, -1 = left
+      roadType: 'h',
+      roadIndex: r
+    };
+  }
+  
+  // 创建 3 个 Ghosts：在不同的竖向道路上
+  // Create 3 Ghosts on different vertical roads
+  ghosts = [];
+  const ghostColors = ['#FF0000', '#00FFFF', '#FFB8FF']; // 红、青、粉 | Red, Cyan, Pink
+  
+  if (COLS > 1) {
+    for (let i = 0; i < 3; i++) {
+      const c = int(random(0, COLS - 1));
+      const x0 = xs[c] + colW[c];
+      const size = gapX[c] * 2;  // 变大一倍 | Double the size
+      ghosts.push({
+        x: x0 + gapX[c] / 2 - size / 2, // 居中
+        y: random(H),
+        size: size,
+        speed: 1.2,
+        direction: random() < 0.5 ? 1 : -1,
+        color: ghostColors[i],
+        roadType: 'v',
+        roadIndex: c,
+        targetX: 0,
+        targetY: 0
+      });
+    }
+  }
+  
+  // 重置计时器
+  // Reset timers
+  mouthTimer = millis();
+  ghostModeTimer = millis();
+}
+
+// 更新 Pacman 的嘴巴动画（基于时间的周期性动画）
+// Update Pacman's mouth animation (time-based periodic animation)
+function updatePacmanMouth(){
+  const elapsed = millis() - mouthTimer;
+  const phase = (elapsed % MOUTH_CYCLE) / MOUTH_CYCLE; // 0 到 1 的周期 | 0 to 1 cycle
+  
+  // 使用正弦波让嘴巴平滑开合
+  // Use sine wave for smooth mouth open/close
+  mouthOpenAngle = (sin(phase * TWO_PI) + 1) / 2 * 45; // 0-45度 | 0-45 degrees
+}
+
+// 更新 Ghost 模式（基于时间的事件切换）
+// Update Ghost mode (time-based event switching)
+function updateGhostMode(){
+  const elapsed = millis() - ghostModeTimer;
+  
+  if (elapsed > GHOST_MODE_CYCLE) {
+    // 切换模式：chase <-> scatter
+    // Switch mode: chase <-> scatter
+    ghostMode = (ghostMode === 'chase') ? 'scatter' : 'chase';
+    ghostModeTimer = millis();
+  }
+}
+
+// 更新 Pacman 位置
+// Update Pacman position
+function updatePacman(){
+  if (!pacman || !moving) return;
+  
+  const v = pacman.speed * speedFactor;
+  
+  if (pacman.roadType === 'h') {
+    // 在横向道路上移动
+    // Moving on horizontal road
+    pacman.x += v * pacman.direction;
+    
+    // 边界循环
+    // Wrap around edges
+    if (pacman.x > W) pacman.x = -pacman.size;
+    if (pacman.x < -pacman.size) pacman.x = W;
+    
+    // 检查是否到达交叉口（与竖向道路相交）
+    // Check if reaching an intersection (with vertical roads)
+    for (let c = 0; c < COLS - 1; c++) {
+      const roadX = xs[c] + colW[c];
+      const roadW = gapX[c];
+      
+      // 如果Pacman中心接近这条竖向道路
+      // If Pacman center is near this vertical road
+      if (Math.abs(pacman.x + pacman.size / 2 - roadX - roadW / 2) < roadW) {
+        // 有概率在交叉口转向
+        // Probability to turn at intersection
+        if (random() < 0.15) {
+          // 切换到竖向道路
+          // Switch to vertical road
+          pacman.roadType = 'v';
+          pacman.roadIndex = c;
+          pacman.x = roadX + roadW / 2 - pacman.size / 2; // 居中
+          pacman.direction = random() < 0.5 ? 1 : -1; // 随机向上或向下 | random up or down
+          break;
+        }
+      }
+    }
+    
+    // 随机掉头
+    // Random U-turn
+    if (random() < 0.008) {
+      pacman.direction *= -1;
+    }
+    
+  } else {
+    // 在竖向道路上移动
+    // Moving on vertical road
+    pacman.y += v * pacman.direction;
+    
+    // 边界循环
+    // Wrap around edges
+    if (pacman.y > H) pacman.y = -pacman.size;
+    if (pacman.y < -pacman.size) pacman.y = H;
+    
+    // 检查是否到达交叉口（与横向道路相交）
+    // Check if reaching an intersection (with horizontal roads)
+    for (let r = 0; r < ROWS - 1; r++) {
+      const roadY = ys[r] + rowH[r];
+      const roadH = gapY[r];
+      
+      // 如果Pacman中心接近这条横向道路
+      // If Pacman center is near this horizontal road
+      if (Math.abs(pacman.y + pacman.size / 2 - roadY - roadH / 2) < roadH) {
+        // 有概率在交叉口转向
+        // Probability to turn at intersection
+        if (random() < 0.15) {
+          // 切换到横向道路
+          // Switch to horizontal road
+          pacman.roadType = 'h';
+          pacman.roadIndex = r;
+          pacman.y = roadY + roadH / 2 - pacman.size / 2; // 居中
+          pacman.direction = random() < 0.5 ? 1 : -1; // 随机向左或向右 | random left or right
+          break;
+        }
+      }
+    }
+    
+    // 随机掉头
+    // Random U-turn
+    if (random() < 0.008) {
+      pacman.direction *= -1;
+    }
+  }
+}
+
+// 更新 Ghosts 位置
+// Update Ghosts position
+function updateGhosts(){
+  if (!pacman || !moving) return;
+  
+  for (const ghost of ghosts) {
+    const v = ghost.speed * speedFactor;
+    
+    if (ghostMode === 'chase' && pacman) {
+      // Chase 模式：追逐 Pacman
+      // Chase mode: pursue Pacman
+      if (ghost.y < pacman.y) {
+        ghost.direction = 1;
+      } else if (ghost.y > pacman.y) {
+        ghost.direction = -1;
+      }
+    } else {
+      // Scatter 模式：随机移动
+      // Scatter mode: random movement
+      if (random() < 0.02) {
+        ghost.direction *= -1;
+      }
+    }
+    
+    ghost.y += v * ghost.direction;
+    
+    // 边界循环
+    // Wrap around edges
+    if (ghost.y > H) ghost.y = -ghost.size;
+    if (ghost.y < -ghost.size) ghost.y = H;
+  }
+}
+
+// 绘制 Pacman
+// Draw Pacman
+function drawPacman(){
+  if (!pacman) return;
+  
+  push();
+  fill('#FFFF00'); // 黄色 | Yellow
+  noStroke();
+  
+  // 计算嘴巴朝向（根据道路类型和方向）
+  // Calculate mouth direction based on road type and direction
+  let angle;
+  if (pacman.roadType === 'h') {
+    // 横向道路：向右(0)或向左(PI)
+    // Horizontal road: right(0) or left(PI)
+    angle = pacman.direction > 0 ? 0 : PI;
+  } else {
+    // 竖向道路：向下(PI/2)或向上(-PI/2)
+    // Vertical road: down(PI/2) or up(-PI/2)
+    angle = pacman.direction > 0 ? PI / 2 : -PI / 2;
+  }
+  
+  // 绘制 Pacman（带张开的嘴巴）
+  // Draw Pacman with open mouth
+  translate(pacman.x + pacman.size / 2, pacman.y + pacman.size / 2);
+  rotate(angle);
+  
+  const startAngle = radians(mouthOpenAngle);
+  const endAngle = TWO_PI - radians(mouthOpenAngle);
+  
+  arc(0, 0, pacman.size, pacman.size, startAngle, endAngle, PIE);
+  pop();
+}
+
+// 绘制 Ghosts
+// Draw Ghosts
+function drawGhosts(){
+  for (const ghost of ghosts) {
+    push();
+    
+    // Ghost 身体（圆形顶部 + 波浪底部）
+    // Ghost body (rounded top + wavy bottom)
+    fill(ghost.color);
+    noStroke();
+    
+    const x = ghost.x;
+    const y = ghost.y;
+    const s = ghost.size;
+    
+    // 上半部分：半圆
+    // Top half: semicircle
+    arc(x + s / 2, y + s / 2, s, s, PI, TWO_PI);
+    rect(x, y + s / 2, s, s / 2);
+    
+    // 底部波浪（简化为三角形）
+    // Bottom wave (simplified as triangles)
+    fill(ghost.color);
+    triangle(x, y + s, x + s / 3, y + s * 0.8, x + s / 3, y + s);
+    triangle(x + s / 3, y + s, x + s * 2 / 3, y + s * 0.8, x + s * 2 / 3, y + s);
+    triangle(x + s * 2 / 3, y + s, x + s, y + s * 0.8, x + s, y + s);
+    
+    // 眼睛
+    // Eyes
+    fill(255);
+    const eyeSize = s * 0.2;
+    ellipse(x + s * 0.35, y + s * 0.4, eyeSize, eyeSize);
+    ellipse(x + s * 0.65, y + s * 0.4, eyeSize, eyeSize);
+    
+    fill(0);
+    const pupilSize = eyeSize * 0.5;
+    ellipse(x + s * 0.35, y + s * 0.4, pupilSize, pupilSize);
+    ellipse(x + s * 0.65, y + s * 0.4, pupilSize, pupilSize);
+    
+    pop();
+  }
 }
