@@ -1,10 +1,10 @@
-// 画布与网格设置
-// Canvas & grid settings
 const W = 900, H = 900;
 const COLS = 10, ROWS = 10;
 
 // —— 基础间距与“微小抖动幅度” ——
-// Base gap sizes and small random jitter
+// Base spacing of gaps and small random jitter per gap
+// 例如基础 10px，每条缝各自 ±2px 的细微差别
+// For example, base 10px and each gap jitters by about ±2px
 const GAP_X_BASE = 15, GAP_Y_BASE = 15;
 const GAP_X_DELTA = 3,  GAP_Y_DELTA = 3;
 
@@ -13,824 +13,400 @@ const GAP_X_DELTA = 3,  GAP_Y_DELTA = 3;
 const COL_MIN = 20,  COL_MAX = 280;
 const ROW_MIN = 40,  ROW_MAX = 140;
 
-// 列宽分布：中间更宽、两侧更窄
-// Column width distribution: wider in the centre, narrower at the sides
-const CENTER_POWER = 2.2;
-const COL_SPREAD   = 2.0;
+// 列宽分布（可选：让“中间稍宽、两侧偏窄”以获得更好观感）
+// Column width distribution (optional: make middle columns wider, edges narrower for better aesthetics)
+const CENTER_POWER = 2.2; // 越大→中间越宽、两侧越窄 | Larger → wider center, narrower sides
+const COL_SPREAD   = 2.0; // 越大→差距越大；1=普通随机 | Larger → more variation; 1 = plain random
 
-// 行高分布：中间更高、两侧更矮
-// Row height distribution: taller in the centre, shorter at the sides
-const ROW_CENTER_POWER = 2.0;
-const ROW_SPREAD       = 1.5;
+// 行高分布（“中间更高、两侧更矮”）
+// Row height distribution (“taller in the middle, shorter on the sides”)
+const ROW_CENTER_POWER = 2.0; // 越大→中间更高、两侧更低 | Larger → taller center rows
+const ROW_SPREAD       = 1.5; // 越大→差距越大；1=普通随机 | Larger → more variation; 1 = plain random
 
-// 几何数据：列宽、行高、缝隙宽高、每列/行起点坐标
-// Geometry data: column widths, row heights, gaps, start positions
+// 用于存放列宽、行高和缝隙、坐标等
+// Arrays to store column widths, row heights, gaps and coordinates
 let colW = [], rowH = [];
-let gapX = [], gapY = [];
-let xs = [], ys = [];
-
-// 白块内部的大色块（第一层 + 叠加）
-// Large colour blocks inside white cells (first pass + overlay)
-let bigBlocks = [];     // 记录第一层大块（带 mode） | first-pass blocks with mode
-let colorBlocks = [];   // 真正要画的所有色块 | all rectangles to draw
-
-// 白色“连通桥”（把某些缝改成白色连接块）
-// White connectors between cells
-let connectors = [];
-
-// 黄色道路上的小方块（原来 sprinkle 出来的那批，现在作为“会动”的方块）
-// Small squares on yellow roads (the original ones, now animated)
-let roadSquares = [];
-
-// 小方块是否在移动的开关（按 E 切换）
-// Toggle: whether the road squares are moving (press E to toggle)
-let moving = true;
-
-// —— UI：速度控制滑块 + 文字标签 ——
-// UI: speed slider + labels
-let speedSlider;        // p5.js slider element
-let speedLabel;         // “Speed 调整” 标签
-let speedInfo;          // 显示 Speed × ... (E/R) 的标签
-let speedFactor = 1.0;  // 全局速度系数，乘到每个方块的 speed 上
-                        // Global speed factor, multiplies each square's base speed
+let gapX = [], gapY = [];  // 变动后的间距 | jittered gaps
+let xs = [], ys = [];      // 每列/每行的起点坐标（无外边距）| start positions of each col/row (no outer margin)
+let bigBlocks = [];        // 记录刚刚生成的彩色大方块（供二次方块使用）
+// Stores generated large color blocks, for second-layer blocks
 
 
-// ========== 新增：Pacman 功能相关变量 ==========
-// Pacman-related variables (Time-Based Animation Feature)
-let pacman = null;           // Pacman 对象 | Pacman object
-let ghosts = [];             // 幽灵数组 | Array of ghost objects
-let mouthTimer = 0;          // 嘴巴动画计时器 | Mouth animation timer
-let mouthOpenAngle = 0;      // 当前嘴巴张开角度 | Current mouth open angle
-let ghostModeTimer = 0;      // 幽灵模式切换计时器 | Ghost mode switch timer
-let ghostMode = 'chase';     // 幽灵模式：'chase' 或 'scatter' | Ghost mode: 'chase' or 'scatter'
-const MOUTH_CYCLE = 300;     // 嘴巴开合周期（毫秒）| Mouth open/close cycle (ms)
-const GHOST_MODE_CYCLE = 5000; // 幽灵模式切换周期（毫秒）| Ghost mode switch cycle (ms)
-
-// 计算当前窗口下画布应有的尺寸（保持正方形 + 限制最大 900）
-// Compute canvas size for current window (square, max 900)
-function calcCanvasSize(){
-  // 预留一点边距，防止贴边 | leave some margins
-  let maxSize = 900;
-  let size = min(windowWidth - 40, windowHeight - 120, maxSize);
-  size = max(size, 300); // 最小 300，避免太小 | min 300
-  return size;
-}
-
-// 更新滑块和标签的位置：放在画布下面同一行
-// Update slider and labels positions: place them on one row below the canvas
-function updateSliderPosition(){
-  const y = height + 20;
-  if (speedLabel){
-    // 标签在左边 | label on the left
-    speedLabel.position(20, y + 3);
-  }
-  if (speedSlider){
-    // 滑块在标签右侧 | slider to the right of label
-    speedSlider.position(100, y);
-  }
-  if (speedInfo){
-    // ★ info 文本再往右一点 | info text further to the right
-    speedInfo.position(250, y + 3);
-  }
-}
-
-
-// --------------------------------------------------------
-// p5.js 标准入口
-// --------------------------------------------------------
 function setup(){
-  const size = calcCanvasSize();
-  createCanvas(size, size);  // 实际画布大小随屏幕变化 | canvas size adapts to screen
-  noStroke();
-  createNewLayout(); // 生成一次完整布局 | generate a full layout once
-
-  // 创建一个 UI 滑块，用来控制速度
-  // Create a UI slider to control movement speed
-  // 范围 0–300，默认 100，对应 speedFactor = 0–3.0
-  speedSlider = createSlider(0, 300, 100);
-
-  // 在滑块旁边加一个“Speed 调整”的文字标签
-  // Label next to the slider
-  speedLabel = createSpan('Speed change');
-  speedLabel.style('font-size', '12px');
-  speedLabel.style('font-family', 'sans-serif');
-
-  // 用于显示 "Speed × ... (E: pause / R: reset)" 的标签
-  // label to show "Speed × ... (E: pause / R: reset)"
-  speedInfo = createSpan('');
-  speedInfo.style('font-size', '14px');
-  speedInfo.style('font-family', 'sans-serif');
-
-  updateSliderPosition();
+  createCanvas(W, H);
+  noLoop();         // 不自动循环绘制 | Disable auto-loop, draw only when called
+  drawScene();      // 初次绘制场景 | Initial rendering
 }
 
-// 当窗口尺寸变化时，自动调整画布大小和滑块位置
-// When the window is resized, adapt canvas size and slider position
-function windowResized(){
-  const size = calcCanvasSize();
-  resizeCanvas(size, size);
-  updateSliderPosition();
-}
+function drawScene(){
+  // 黄色背景
+  // Yellow background
+  background('#f2d31b');
 
-
-// 每一帧重画底图 + 小方块当前状态
-// Each frame: redraw base + road squares
-function draw(){
-  background('#f2d31b');   // 整个屏幕底色 | screen background
-
-  // 从滑块读取速度系数（0~300 → 0.00~3.00）
-  // Read speed factor from slider (0~300 → 0.00~3.00)
-  speedFactor = speedSlider.value() / 100.0;
-
-  // 把坐标缩放到当前画布大小：
-  // 逻辑空间是 900×900，这里按比例缩放到实际画布的 width×height
-  // Scale logical 900×900 space into the current canvas size
-  push();
-  const s = width / W;   // 因为 width===height，直接用 width/W 即可 | since width==height
-  scale(s);
-
-  drawWhiteGrid();         // 10×10 白格 | 10×10 white grid
-
-  if (moving){
-    updateRoadSquares();   // 更新位置（用逻辑空间坐标）| update in logical space
-  }
-    
-    // 新增：更新 Pacman 相关动画（基于时间）
-    // Update Pacman animations (time-based)
-    updatePacmanMouth();   // 更新嘴巴动画
-    updateGhostMode();     // 更新幽灵模式
-    updatePacman();        // 更新 Pacman 位置
-    updateGhosts();        // 更新幽灵位置
-  drawRoadSquares();       // 画在黄色道路上的小方块 | draw road squares
-
-  
-  // 新增：绘制 Pacman 和 Ghosts
-  // Draw Pacman and Ghosts
-  drawConnectors();        // 白色连通桥 | white connectors
-  drawColorBlocks();       // 白格内部大色块 | coloured strips inside cells
-    drawPacman();
-    drawGhosts();
-  pop();
-
-  // 不再在画布里画文字，而是更新 speedInfo 标签的文本
-  // Instead of drawing text on canvas, update the HTML label next to the slider
-  const infoText = 'Speed × ' + nf(speedFactor, 1, 2) + '  (E: pause / R: reset)';
-  if (speedInfo){
-    speedInfo.html(infoText);
-  }
-}
-
-
-// 键盘控制：R = 重置布局，E = 小方块动/停
-// Keyboard: R = reset layout, E = toggle motion
-function keyPressed(){
-  if (key === 'r' || key === 'R'){
-    createNewLayout();
-  } else if (key === 'e' || key === 'E'){
-    moving = !moving;
-  }
-}
-
-
-// --------------------------------------------------------
-// 布局生成：缝隙、白格、道路小方块、大色块、连通桥（都在 900×900 逻辑空间里）
-// Layout generation in the 900×900 logical space
-// --------------------------------------------------------
-function createNewLayout(){
-  // 1) 缝隙随机抖动 | random jitter for gaps
-  gapX = new Array(COLS-1).fill(0).map(
-    () => GAP_X_BASE + random(-GAP_X_DELTA, GAP_X_DELTA)
-  );
-  gapY = new Array(ROWS-1).fill(0).map(
-    () => GAP_Y_BASE + random(-GAP_Y_DELTA, GAP_Y_DELTA)
-  );
+  // 1) 为每条“列缝/行缝”生成微小不同的间距
+  // 1) Generate small random gap values for each vertical/horizontal gap
+  gapX = new Array(COLS-1).fill(0).map(()=> GAP_X_BASE + random(-GAP_X_DELTA, GAP_X_DELTA));
+  gapY = new Array(ROWS-1).fill(0).map(()=> GAP_Y_BASE + random(-GAP_Y_DELTA, GAP_Y_DELTA));
 
   const sumGapX = gapX.reduce((a,b)=>a+b, 0);
   const sumGapY = gapY.reduce((a,b)=>a+b, 0);
 
+  // 2) 可用于白块的总宽/高（不含外边距，只在内部划分）  
+  // 2) Total available width/height for white cells (no outer margin)
   const availW = W - sumGapX;
   const availH = H - sumGapY;
 
-  // 2) 分配列宽/行高（总和 = 可用宽/高，中间更宽/高）  
-  // 2) Allocate column widths / row heights (sum = available size, biased to centre)
-  const posW = positionWeights(COLS, CENTER_POWER);
+  // 3) 列宽/行高的随机分配（总和严格 = 可用尺寸）
+  // 3) Randomly allocate column widths and row heights (sum strictly equals available size)
+  const posW = positionWeights(COLS, CENTER_POWER);     // 中间更宽的权重（可关闭）| weights for wider center columns
   randomizeWithBias(colW, COLS, availW, COL_MIN, COL_MAX, COL_SPREAD, posW);
 
-  const posR = positionWeights(ROWS, ROW_CENTER_POWER);
+  const posR = positionWeights(ROWS, ROW_CENTER_POWER); // 中间高度更大的权重
+  // Weights for taller center rows
   randomizeWithBias(rowH, ROWS, availH, ROW_MIN, ROW_MAX, ROW_SPREAD, posR);
 
-  // 3) 计算每列/每行起点坐标 | compute start x/y for each column/row
-  xs = new Array(COLS);
+
+  // 4) 计算每列/每行的起点（从 0 开始，一直排到边缘）  
+  // 4) Compute starting x/y for each col/row (from 0 to canvas edge)
+  xs = new Array(COLS); 
   ys = new Array(ROWS);
 
-  let x = 0;
+  let x = 0; 
   for (let c = 0; c < COLS; c++){
     xs[c] = x;
     x += colW[c] + (c < COLS-1 ? gapX[c] : 0);
   }
 
-  let y = 0;
+  let y = 0; 
   for (let r = 0; r < ROWS; r++){
     ys[r] = y;
     y += rowH[r] + (r < ROWS-1 ? gapY[r] : 0);
   }
 
-  // 4) 清空并重新生成：连接桥、大色块、道路小方块
-  // 4) Clear and regenerate connectors, big blocks and road squares
-  connectors   = [];
-  bigBlocks    = [];
-  colorBlocks  = [];
-  roadSquares  = [];
+  // 5) 画 10×10 白色方块
+  // 5) Draw the 10×10 grid of white rectangles
+  noStroke(); 
+  fill('#ffffff');
+  for (let r = 0; r < ROWS; r++){
+    for (let c = 0; c < COLS; c++){
+      rect(xs[c], ys[r], colW[c], rowH[r]);
+    }
+  }
 
-  generateConnectors(12);    // 白色连通桥 | white bridges
-  generateBigBlocks({        // 白格内部大色条 + 叠加 | big strips + overlays
-    prob: 0.55,
-    minFrac: 0.35,
-    maxFrac: 0.85,
-    aspectThresh: 1.15
+  // 5) 再画一层 10×10 白色方块（保持原样）  
+  // 5) Draw another layer of 10×10 white rectangles (as originally written)
+  noStroke(); 
+  fill('#ffffff');
+  for (let r = 0; r < ROWS; r++){
+    for (let c = 0; c < COLS; c++){
+      rect(xs[c], ys[r], colW[c], rowH[r]);
+    }
+  }
+
+  // 6) 在黄色缝里撒红/蓝/灰小方块
+  // 6) Sprinkle red/blue/grey small squares in the yellow gaps
+  sprinkleColorInGaps();
+
+  // 7) 用白色“连通”相邻的白块，把一部分缝盖掉
+  // 7) Use white to connect some adjacent white cells, covering a number of gaps
+  linkWhiteBlocks(12);   // ← 可调连接次数 | adjustable number of connections
+
+  // 8) 按宽高比例，在白块内部加入大色块
+  // 8) Add big colored blocks inside each white cell depending on aspect ratio
+  addBigBlocksInWhiteAspect({ 
+    prob: 0.55, 
+    minFrac: 0.35, 
+    maxFrac: 0.85, 
+    aspectThresh: 1.15 
   });
-  generateRoadSquares();     // 黄色道路上的小方块（会动的那批）| moving road squares
-  
-  // 新增：初始化 Pacman 游戏
-  // Initialize Pacman game
-  initializePacmanGame();
+
+  // 9) 在这些大方块内部，按“相反规则”再生成第二层方块
+  // 9) Inside these big blocks, generate a second layer with the opposite rule
+  //    （原来是等高条 → 现在等宽条；原来等宽条 → 现在等高条）
+  //    (if first block was equal-height, second is equal-width, and vice versa)
+  overlayInsideBigBlocks({ 
+    prob: 0.20,        // 大约 20% 的大方块再生成一次 | ~20% chance of overlay per big block
+    minFrac: 0.35, 
+    maxFrac: 0.85 
+  });
 }
 
 
-// --------------------------------------------------------
-// 绘制部分：白格 / 连通桥 / 大色块 / 道路小方块（都基于逻辑坐标，draw() 里整体缩放）
-// Drawing: white grid / connectors / big blocks / road squares (all in logical space)
-// --------------------------------------------------------
+/* 在黄色间隙里放“正方形”彩块：
+   - 竖缝：方块边长 = 缝宽 w，沿 Y 方向随机间隔排列
+   - 横缝：方块边长 = 缝高 h，沿 X 方向随机间隔排列
 
-// 画两层 10×10 白色网格（保持你原来的“刷两遍白块”习惯）
-// Draw the 10×10 white grid twice (same as your original code)
-function drawWhiteGrid(){
-  noStroke();
-  fill('#ffffff');
-  for (let r = 0; r < ROWS; r++){
-    for (let c = 0; c < COLS; c++){
-      rect(xs[c], ys[r], colW[c], rowH[r]);
-    }
-  }
-  // 再刷一层，提升“纯白”感 | draw again for a cleaner white
-  for (let r = 0; r < ROWS; r++){
-    for (let c = 0; c < COLS; c++){
-      rect(xs[c], ys[r], colW[c], rowH[r]);
-    }
-  }
-}
-
-// 画白色连通块 | draw white connectors
-function drawConnectors(){
-  noStroke();
-  fill('#ffffff');
-  for (const b of connectors){
-    rect(b.x, b.y, b.w, b.h);
-  }
-}
-
-// 画白格子里的大色块（含叠加层）
-// Draw all coloured blocks inside white cells (including overlays)
-function drawColorBlocks(){
-  noStroke();
-  for (const b of colorBlocks){
-    fill(b.color);
-    rect(b.x, b.y, b.w, b.h);
-  }
-}
-
-// 画黄色道路上的小方块（可能是静止或移动状态）
-// Draw small squares on yellow roads (either static or moving)
-function drawRoadSquares(){
-  noStroke();
-  for (const s of roadSquares){
-    fill(s.color);
-    rect(s.x, s.y, s.size, s.size);
-  }
-}
-
-
-// --------------------------------------------------------
-// 黄色道路小方块：用原来 sprinkle 的逻辑，改成“生成对象 + 可移动”
-// Road squares: same placement logic as original sprinkleColorInGaps, now animatable
-// --------------------------------------------------------
-function generateRoadSquares(){
+   Place square colored blocks in yellow gaps:
+   - Vertical gaps: square size = gap width w, scattered along Y with random spacing
+   - Horizontal gaps: square size = gap height h, scattered along X with random spacing
+*/
+function sprinkleColorInGaps(){
   const COLORS = ['#c63b2d', '#2a59b6', '#bfbfbf']; // 红 / 蓝 / 灰 | red / blue / grey
-  const V_GAP_MIN = 8,  V_GAP_MAX = 28;
-  const H_GAP_MIN = 8,  H_GAP_MAX = 28;
 
-  roadSquares = [];
+  // 方块之间的黄色间隔范围（沿缝方向的间距）
+  // Range of yellow spacing between blocks (along the gap direction)
+  const V_GAP_MIN = 8,  V_GAP_MAX = 28;  // 竖缝：方块之间的垂直空段 | vertical gaps: vertical spacing
+  const H_GAP_MIN = 8,  H_GAP_MAX = 28;  // 横缝：方块之间的水平空段 | horizontal gaps: horizontal spacing
 
-  // —— 竖向缝（列与列之间），沿 Y 方向排列 ——  
-  // Vertical gaps between columns: squares arranged along Y
+  noStroke();
+
+  // —— 竖向缝（列与列之间）：方块边长 = 缝宽 w ——
+  // —— Vertical gaps (between columns): block side length = gap width w ——
   for (let c = 0; c < COLS - 1; c++) {
-    const x0 = xs[c] + colW[c];
-    const w  = gapX[c];
-    const s  = w;       // 方块边长 = 缝宽 | square size = gap width
+    const x0 = xs[c] + colW[c]; // 竖缝左侧 x 坐标 | x position of vertical gap
+    const w  = gapX[c];         // 竖缝宽度 | gap width
+    const s  = w;               // 正方形边长 = w | square side = gap width
     let y = 0;
 
+    // 沿 Y 方向逐段放置，直到超出画布底部
+    // Place blocks along Y until beyond bottom of canvas
     while (y + s <= H) {
+      // 随机决定是否放一个方块，使其更稀疏
+      // Decide randomly whether to place a block to keep it sparse
       if (random() < 0.65) {
-        const color = random(COLORS);
-        const speed = random(0.6, 2.0) * (random() < 0.5 ? 1 : -1); // 随机上下方向 | random up/down
-        roadSquares.push({
-          type: 'v',   // vertical lane
-          x: x0,
-          y: y,
-          size: s,
-          color,
-          speed      // 基础速度（在 updateRoadSquares 里会乘以 speedFactor）
-                     // Base speed (multiplied by speedFactor in updateRoadSquares)
-        });
+        fill(random(COLORS));
+        rect(x0, y, s, s);      // 宽=高=s，严格正方形 | Width=height=s => perfect square
       }
+      // 方块后面再留一点黄色缝隙
+      // After a block, leave a random yellow gap
       y += s + random(V_GAP_MIN, V_GAP_MAX);
     }
   }
 
-  // —— 横向缝（行与行之间），沿 X 方向排列 ——  
-  // Horizontal gaps between rows: squares arranged along X
+  // —— 横向缝（行与行之间）：方块边长 = 缝高 h ——
+  // —— Horizontal gaps (between rows): block side length = gap height h ——
   for (let r = 0; r < ROWS - 1; r++) {
-    const y0 = ys[r] + rowH[r];
-    const h  = gapY[r];
-    const s  = h;       // 方块边长 = 缝高 | square size = gap height
+    const y0 = ys[r] + rowH[r]; // 横缝的 y 坐标 | y position of horizontal gap
+    const h  = gapY[r];         // 横缝高度 | gap height
+    const s  = h;               // 正方形边长 = h | square side = gap height
     let x = 0;
 
+    // 沿 X 方向逐段放置，直到超出画布右侧
+    // Place blocks along X until beyond right edge
     while (x + s <= W) {
       if (random() < 0.65) {
-        const color = random(COLORS);
-        const speed = random(0.6, 2.0) * (random() < 0.5 ? 1 : -1); // 随机左右方向 | random left/right
-        roadSquares.push({
-          type: 'h',   // horizontal lane
-          x: x,
-          y: y0,
-          size: s,
-          color,
-          speed
-        });
+        fill(random(COLORS));
+        rect(x, y0, s, s);      // 宽=高=s，严格正方形 | Width=height=s => perfect square
       }
       x += s + random(H_GAP_MIN, H_GAP_MAX);
     }
   }
 }
 
-// 更新小方块位置，让它们沿道路循环移动（出界从另一侧回来）
-// Update road squares so they move along the roads and wrap around edges
-function updateRoadSquares(){
-  for (const s of roadSquares){
-    // 这里用基础速度 * 全局 speedFactor
-    // Use base speed * global speedFactor
-    const v = s.speed * speedFactor;
 
-    if (s.type === 'v'){          // 在竖向道路上 | on a vertical road
-      s.y += v;
-      if (s.y > H)       s.y = -s.size;
-      if (s.y < -s.size) s.y = H;
-    } else {                      // 在横向道路上 | on a horizontal road
-      s.x += v;
-      if (s.x > W)       s.x = -s.size;
-      if (s.x < -s.size) s.x = W;
-    }
-  }
-}
+/* ---------- 工具：位置权重/分配 ---------- */
+/* ---------- Utility: position weights / distribution ---------- */
 
-
-// --------------------------------------------------------
-// 连通桥 + 白格内部大色块（等高/等宽 + 叠加一层“反规则”）
-// Connectors + big coloured strips (equal-height/width + opposite overlay)
-// --------------------------------------------------------
-
-// 生成白色连通桥（记录版的 linkWhiteBlocks）
-// Generate white connectors between adjacent cells
-function generateConnectors(count = 8){
-  connectors = [];
-  for (let k = 0; k < count; k++){
-    if (random() < 0.5) {
-      // 横向连接：同一行打掉列 c 与 c+1 之间的竖缝
-      // Horizontal connection along a row: cover vertical gap between col c and c+1
-      const r = int(random(0, ROWS));
-      const c = int(random(0, COLS-1));
-      const x0 = xs[c] + colW[c];
-      const y0 = ys[r];
-      const w  = gapX[c];
-      const h  = rowH[r];
-      connectors.push({ x: x0, y: y0, w, h });
-    } else {
-      // 纵向连接：同一列打掉行 r 与 r+1 之间的横缝
-      // Vertical connection along a column: cover horizontal gap between row r and r+1
-      const c = int(random(0, COLS));
-      const r = int(random(0, ROWS-1));
-      const x0 = xs[c];
-      const y0 = ys[r] + rowH[r];
-      const w  = colW[c];
-      const h  = gapY[r];
-      connectors.push({ x: x0, y: y0, w, h });
-    }
-  }
-}
-
-
-// 在白格里生成大色块，然后按“相反规则”叠加第二层
-// Generate big colour blocks and overlay a second layer with the opposite rule
-function generateBigBlocks(opts){
-  const COLORS = ['#c63b2d', '#2a59b6', '#f2d31b']; // 红 / 蓝 / 黄
-  const PROB   = (opts && opts.prob)         ?? 0.55;
-  const MINF   = (opts && opts.minFrac)      ?? 0.35;
-  const MAXF   = (opts && opts.maxFrac)      ?? 0.85;
-  const THR    = (opts && opts.aspectThresh) ?? 1.15;
-  const PROB2  = 0.20; // 第二层出现概率 | probability for second-layer blocks
-
-  bigBlocks   = [];
-  colorBlocks = [];
-
-  // 第一层：根据白块宽高比，决定等高条 or 等宽条
-  // First pass: decide equal-height or equal-width strips based on cell aspect ratio
-  for (let r = 0; r < ROWS; r++){
-    for (let c = 0; c < COLS; c++){
-      if (random() > PROB) continue;
-
-      const x = xs[c], y = ys[r];
-      const w = colW[c], h = rowH[r];
-      const ratioW = w / h;
-      const ratioH = h / w;
-
-      const color = random(COLORS);
-      let bx, by, bw, bh, mode;
-
-      if (ratioW >= THR) {
-        // 更宽：等高条 | wider → equal-height strip
-        bw = random(MINF * w, MAXF * w);
-        bh = h;
-        bx = x + random(0, w - bw);
-        by = y;
-        mode = 'equalHeight';
-      } else if (ratioH >= THR) {
-        // 更高：等宽条 | taller → equal-width strip
-        bw = w;
-        bh = random(MINF * h, MAXF * h);
-        bx = x;
-        by = y + random(0, h - bh);
-        mode = 'equalWidth';
-      } else {
-        // 近似正方：随机选一种 | near-square → random choice
-        if (random() < 0.5){
-          bw = random(MINF * w, MAXF * w);
-          bh = h;
-          bx = x + random(0, w - bw);
-          by = y;
-          mode = 'equalHeight';
-        } else {
-          bw = w;
-          bh = random(MINF * h, MAXF * h);
-          bx = x;
-          by = y + random(0, h - bh);
-          mode = 'equalWidth';
-        }
-      }
-
-      bigBlocks.push({ x: bx, y: by, w: bw, h: bh, color, mode });
-      colorBlocks.push({ x: bx, y: by, w: bw, h: bh, color });
-    }
-  }
-
-  // 第二层：按“相反规则”在第一层内部叠加一块
-  // Second pass: overlay a block inside each first-pass block using the opposite rule
-  for (const b of bigBlocks){
-    if (random() > PROB2) continue;
-
-    const COLORS2 = ['#c63b2d', '#2a59b6', '#f2d31b'];
-    const altChoices = COLORS2.filter(c => c !== b.color);
-    const alt = random(altChoices);
-
-    if (b.mode === 'equalHeight'){
-      // 首次等高 → 第二层等宽 | first equal-height → second equal-width
-      const hh = random(MINF * b.h, MAXF * b.h);
-      const yy = b.y + random(0, b.h - hh);
-      colorBlocks.push({ x: b.x, y: yy, w: b.w, h: hh, color: alt });
-    } else {
-      // 首次等宽 → 第二层等高 | first equal-width → second equal-height
-      const ww = random(MINF * b.w, MAXF * b.w);
-      const xx = b.x + random(0, b.w - ww);
-      colorBlocks.push({ x: xx, y: b.y, w: ww, h: b.h, color: alt });
-    }
-  }
-}
-
-
-// --------------------------------------------------------
-// 工具函数：位置权重 + 带 bias 的随机分配
-// Utility functions: positional weights + biased random distribution
-// --------------------------------------------------------
-
-// 位置权重：中间值更大，用来让“中间更宽/更高”
-// Positional weights: larger in the centre, used to bias widths/heights
+// 根据索引（靠中间或两侧）生成一组权重，用于让“中间更宽或更高”
+// Generate weights based on index (near center or edges) to bias sizes
 function positionWeights(n, power){
   const arr = new Array(n);
   const mid = (n - 1) / 2;
-  for (let i = 0; i < n; i++){
-    const t = 1 - Math.abs((i - mid) / mid); // 0 at edges, 1 at centre
-    arr[i] = Math.pow(t, power) + 0.05;      // +0.05 防止为 0 | avoid 0
+
+  for(let i = 0; i < n; i++){
+    // t 从 0（两侧）到 1（中间）
+    // t goes from 0 at edges to 1 at center
+    const t = 1 - Math.abs((i - mid) / mid);
+    // 权重 = t^power，外加 0.05 防止为 0
+    // Weight = t^power (plus small constant to avoid 0)
+    arr[i] = Math.pow(t, power) + 0.05;
   }
   return arr;
 }
 
-// 把总量 total 分配给 n 个值，考虑最小值/最大值 + 位置权重
-// Distribute total among n values with min/max and positional weights
+// 按给定总量 total，把 n 个值随机分配到 out[] 中，同时控制最小/最大值与随机幅度、位置权重
+// Randomly distribute 'total' into n values in 'out[]' with min/max constraints and optional positional bias
 function randomizeWithBias(out, n, total, minV, maxV, spread, posW){
+  const base = n * minV;                 // 每个至少 minV，总基数 | base amount (min per item)
+  const rest = max(0, total - base);     // 剩余可分配部分 | remaining amount to distribute
+
+  let w = new Array(n), sw = 0;
+  for(let i = 0; i < n; i++){
+    // random()^spread 控制大小差异，spread 越大→区别越大
+    // random()^spread controls variance; larger spread → more difference
+    const r = Math.pow(random(), spread);
+    w[i] = (posW ? posW[i] : 1) * r; // 乘以位置权重 | multiply by positional weight
+    sw += w[i];
+  }
+
+  // 如果总权重太小，退化成平均 1
+  // If total weight is invalid, fallback to uniform 1
+  if (sw <= 0){ 
+    w.fill(1); 
+    sw = n; 
+  }
+
+  // 先把剩余的 rest 按权重分配，再加上最小值 base
+  // Distribute 'rest' proportional to weights, then add minV
+  for(let i = 0; i < n; i++){
+    out[i] = minV + (w[i] / sw) * rest;
+    // 夹在 [minV, maxV] 之间 | clamp to [minV, maxV]
+    if (maxV > minV) out[i] = constrain(out[i], minV, maxV);
+  }
+
+  // 再整体缩放一次，使总和精确等于 total
+  // Rescale so the sum is exactly equal to 'total'
+  const s = out.reduce((a,b)=>a+b, 0);
+  const k = total / s;
+  for(let i = 0; i < n; i++) out[i] *= k;
+}
+
+// 简化版：没有位置权重的分配函数（当前没用到，但保留以备扩展）
+// Simpler version without positional weights (not used now but kept for flexibility)
+function randomizeWithSpread(out, n, total, minV, maxV, spread){
   const base = n * minV;
   const rest = max(0, total - base);
 
   let w = new Array(n), sw = 0;
-  for (let i = 0; i < n; i++){
-    const r = Math.pow(random(), spread);   // spread 越大差异越大 | larger spread → more variance
-    w[i] = (posW ? posW[i] : 1) * r;
-    sw  += w[i];
-  }
-  if (sw <= 0){
-    w.fill(1);
-    sw = n;
+  for(let i = 0; i < n; i++){
+    w[i] = Math.pow(random(), spread);
+    sw += w[i];
   }
 
-  for (let i = 0; i < n; i++){
+  if (sw <= 0){ 
+    w.fill(1); 
+    sw = n; 
+  }
+
+  for(let i = 0; i < n; i++){
     out[i] = minV + (w[i] / sw) * rest;
     if (maxV > minV) out[i] = constrain(out[i], minV, maxV);
   }
 
   const s = out.reduce((a,b)=>a+b, 0);
   const k = total / s;
-  for (let i = 0; i < n; i++) out[i] *= k;
+  for(let i = 0; i < n; i++) out[i] *= k;
 }
 
-// ========== 新增：Pacman 相关函数 ==========
-// Pacman-related functions (Time-Based Animation Feature)
 
-// 初始化 Pacman 和 Ghosts
-// Initialize Pacman and Ghosts
-function initializePacmanGame(){
-  // 创建 Pacman：在某个横向道路上
-  // Create Pacman on a horizontal road
-  if (ROWS > 1) {
-    const r = int(random(0, ROWS - 1));
-    const y0 = ys[r] + rowH[r];
-    const size = gapY[r] * 2;  // 变大一倍 | Double the size
-    pacman = {
-      x: W / 2,
-      y: y0 + gapY[r] / 2 - size / 2, // 居中
-      size: size,
-      speed: 1.5,
-      direction: 1,  // 1 = 向右, -1 = 向左 | 1 = right, -1 = left
-      roadType: 'h',
-      roadIndex: r
-    };
-  }
-  
-  // 创建 3 个 Ghosts：在不同的竖向道路上
-  // Create 3 Ghosts on different vertical roads
-  ghosts = [];
-  const ghostColors = ['#FF0000', '#00FFFF', '#FFB8FF']; // 红、青、粉 | Red, Cyan, Pink
-  
-  if (COLS > 1) {
-    for (let i = 0; i < 3; i++) {
-      const c = int(random(0, COLS - 1));
-      const x0 = xs[c] + colW[c];
-      const size = gapX[c] * 2;  // 变大一倍 | Double the size
-      ghosts.push({
-        x: x0 + gapX[c] / 2 - size / 2, // 居中
-        y: random(H),
-        size: size,
-        speed: 1.2,
-        direction: random() < 0.5 ? 1 : -1,
-        color: ghostColors[i],
-        roadType: 'v',
-        roadIndex: c,
-        targetX: 0,
-        targetY: 0
-      });
-    }
-  }
-  
-  // 重置计时器
-  // Reset timers
-  mouthTimer = millis();
-  ghostModeTimer = millis();
-}
-
-// 更新 Pacman 的嘴巴动画（基于时间的周期性动画）
-// Update Pacman's mouth animation (time-based periodic animation)
-function updatePacmanMouth(){
-  const elapsed = millis() - mouthTimer;
-  const phase = (elapsed % MOUTH_CYCLE) / MOUTH_CYCLE; // 0 到 1 的周期 | 0 to 1 cycle
-  
-  // 使用正弦波让嘴巴平滑开合
-  // Use sine wave for smooth mouth open/close
-  mouthOpenAngle = (sin(phase * TWO_PI) + 1) / 2 * 45; // 0-45度 | 0-45 degrees
-}
-
-// 更新 Ghost 模式（基于时间的事件切换）
-// Update Ghost mode (time-based event switching)
-function updateGhostMode(){
-  const elapsed = millis() - ghostModeTimer;
-  
-  if (elapsed > GHOST_MODE_CYCLE) {
-    // 切换模式：chase <-> scatter
-    // Switch mode: chase <-> scatter
-    ghostMode = (ghostMode === 'chase') ? 'scatter' : 'chase';
-    ghostModeTimer = millis();
-  }
-}
-
-// 更新 Pacman 位置
-// Update Pacman position
-function updatePacman(){
-  if (!pacman || !moving) return;
-  
-  const v = pacman.speed * speedFactor;
-  
-  if (pacman.roadType === 'h') {
-    // 在横向道路上移动
-    // Moving on horizontal road
-    pacman.x += v * pacman.direction;
-    
-    // 边界循环
-    // Wrap around edges
-    if (pacman.x > W) pacman.x = -pacman.size;
-    if (pacman.x < -pacman.size) pacman.x = W;
-    
-    // 检查是否到达交叉口（与竖向道路相交）
-    // Check if reaching an intersection (with vertical roads)
-    for (let c = 0; c < COLS - 1; c++) {
-      const roadX = xs[c] + colW[c];
-      const roadW = gapX[c];
-      
-      // 如果Pacman中心接近这条竖向道路
-      // If Pacman center is near this vertical road
-      if (Math.abs(pacman.x + pacman.size / 2 - roadX - roadW / 2) < roadW) {
-        // 有概率在交叉口转向
-        // Probability to turn at intersection
-        if (random() < 0.15) {
-          // 切换到竖向道路
-          // Switch to vertical road
-          pacman.roadType = 'v';
-          pacman.roadIndex = c;
-          pacman.x = roadX + roadW / 2 - pacman.size / 2; // 居中
-          pacman.direction = random() < 0.5 ? 1 : -1; // 随机向上或向下 | random up or down
-          break;
-        }
-      }
-    }
-    
-    // 随机掉头
-    // Random U-turn
-    if (random() < 0.008) {
-      pacman.direction *= -1;
-    }
-    
-  } else {
-    // 在竖向道路上移动
-    // Moving on vertical road
-    pacman.y += v * pacman.direction;
-    
-    // 边界循环
-    // Wrap around edges
-    if (pacman.y > H) pacman.y = -pacman.size;
-    if (pacman.y < -pacman.size) pacman.y = H;
-    
-    // 检查是否到达交叉口（与横向道路相交）
-    // Check if reaching an intersection (with horizontal roads)
-    for (let r = 0; r < ROWS - 1; r++) {
-      const roadY = ys[r] + rowH[r];
-      const roadH = gapY[r];
-      
-      // 如果Pacman中心接近这条横向道路
-      // If Pacman center is near this horizontal road
-      if (Math.abs(pacman.y + pacman.size / 2 - roadY - roadH / 2) < roadH) {
-        // 有概率在交叉口转向
-        // Probability to turn at intersection
-        if (random() < 0.15) {
-          // 切换到横向道路
-          // Switch to horizontal road
-          pacman.roadType = 'h';
-          pacman.roadIndex = r;
-          pacman.y = roadY + roadH / 2 - pacman.size / 2; // 居中
-          pacman.direction = random() < 0.5 ? 1 : -1; // 随机向左或向右 | random left or right
-          break;
-        }
-      }
-    }
-    
-    // 随机掉头
-    // Random U-turn
-    if (random() < 0.008) {
-      pacman.direction *= -1;
-    }
-  }
-}
-
-// 更新 Ghosts 位置
-// Update Ghosts position
-function updateGhosts(){
-  if (!pacman || !moving) return;
-  
-  for (const ghost of ghosts) {
-    const v = ghost.speed * speedFactor;
-    
-    if (ghostMode === 'chase' && pacman) {
-      // Chase 模式：追逐 Pacman
-      // Chase mode: pursue Pacman
-      if (ghost.y < pacman.y) {
-        ghost.direction = 1;
-      } else if (ghost.y > pacman.y) {
-        ghost.direction = -1;
-      }
-    } else {
-      // Scatter 模式：随机移动
-      // Scatter mode: random movement
-      if (random() < 0.02) {
-        ghost.direction *= -1;
-      }
-    }
-    
-    ghost.y += v * ghost.direction;
-    
-    // 边界循环
-    // Wrap around edges
-    if (ghost.y > H) ghost.y = -ghost.size;
-    if (ghost.y < -ghost.size) ghost.y = H;
-  }
-}
-
-// 绘制 Pacman
-// Draw Pacman
-function drawPacman(){
-  if (!pacman) return;
-  
-  push();
-  fill('#FFFF00'); // 黄色 | Yellow
+// 把随机“相邻两块”的间隙改成白色（横向/纵向都可能），形成一些连通的大白块
+// Randomly fill some gaps between adjacent cells with white, horizontally or vertically, to form larger white shapes
+function linkWhiteBlocks(count = 8){
   noStroke();
-  
-  // 计算嘴巴朝向（根据道路类型和方向）
-  // Calculate mouth direction based on road type and direction
-  let angle;
-  if (pacman.roadType === 'h') {
-    // 横向道路：向右(0)或向左(PI)
-    // Horizontal road: right(0) or left(PI)
-    angle = pacman.direction > 0 ? 0 : PI;
-  } else {
-    // 竖向道路：向下(PI/2)或向上(-PI/2)
-    // Vertical road: down(PI/2) or up(-PI/2)
-    angle = pacman.direction > 0 ? PI / 2 : -PI / 2;
+  fill('#ffffff');
+
+  for (let k = 0; k < count; k++){
+    if (random() < 0.5) {
+      // —— 横向连接：同一行，打掉列 c 与 c+1 之间的竖缝 ——
+      // —— Horizontal link: in the same row, cover the vertical gap between col c and c+1 ——
+      const r = int(random(0, ROWS));      // 行号 | row index
+      const c = int(random(0, COLS-1));    // 竖缝索引 | vertical gap index
+      const x0 = xs[c] + colW[c];          // 竖缝的 x | x of gap
+      const y0 = ys[r];                    // 对应行的顶部 y | top of this row
+      const w  = gapX[c];                  // 竖缝宽度 | gap width
+      const h  = rowH[r];                  // 该行白块高度 | height of cell
+      rect(x0, y0, w, h);                  // 用白色把缝盖掉 | cover the gap with white
+    } else {
+      // —— 纵向连接：同一列，打掉行 r 与 r+1 之间的横缝 ——
+      // —— Vertical link: in the same column, cover the horizontal gap between row r and r+1 ——
+      const c = int(random(0, COLS));      // 列号 | column index
+      const r = int(random(0, ROWS-1));    // 横缝索引 | horizontal gap index
+      const x0 = xs[c];                    // 该列左侧 x | left of column
+      const y0 = ys[r] + rowH[r];          // 横缝的 y | y of gap
+      const w  = colW[c];                  // 该列白块宽度 | width of cell
+      const h  = gapY[r];                  // 横缝高度 | gap height
+      rect(x0, y0, w, h);                  // 用白色把缝盖掉 | cover the gap with white
+    }
   }
-  
-  // 绘制 Pacman（带张开的嘴巴）
-  // Draw Pacman with open mouth
-  translate(pacman.x + pacman.size / 2, pacman.y + pacman.size / 2);
-  rotate(angle);
-  
-  const startAngle = radians(mouthOpenAngle);
-  const endAngle = TWO_PI - radians(mouthOpenAngle);
-  
-  arc(0, 0, pacman.size, pacman.size, startAngle, endAngle, PIE);
-  pop();
 }
 
-// 绘制 Ghosts
-// Draw Ghosts
-function drawGhosts(){
-  for (const ghost of ghosts) {
-    push();
-    
-    // Ghost 身体（圆形顶部 + 波浪底部）
-    // Ghost body (rounded top + wavy bottom)
-    fill(ghost.color);
-    noStroke();
-    
-    const x = ghost.x;
-    const y = ghost.y;
-    const s = ghost.size;
-    
-    // 上半部分：半圆
-    // Top half: semicircle
-    arc(x + s / 2, y + s / 2, s, s, PI, TWO_PI);
-    rect(x, y + s / 2, s, s / 2);
-    
-    // 底部波浪（简化为三角形）
-    // Bottom wave (simplified as triangles)
-    fill(ghost.color);
-    triangle(x, y + s, x + s / 3, y + s * 0.8, x + s / 3, y + s);
-    triangle(x + s / 3, y + s, x + s * 2 / 3, y + s * 0.8, x + s * 2 / 3, y + s);
-    triangle(x + s * 2 / 3, y + s, x + s, y + s * 0.8, x + s, y + s);
-    
-    // 眼睛
-    // Eyes
-    fill(255);
-    const eyeSize = s * 0.2;
-    ellipse(x + s * 0.35, y + s * 0.4, eyeSize, eyeSize);
-    ellipse(x + s * 0.65, y + s * 0.4, eyeSize, eyeSize);
-    
-    fill(0);
-    const pupilSize = eyeSize * 0.5;
-    ellipse(x + s * 0.35, y + s * 0.4, pupilSize, pupilSize);
-    ellipse(x + s * 0.65, y + s * 0.4, pupilSize, pupilSize);
-    
-    pop();
+// 在每个白色方块内：若“更宽”→放等高条；若“更高”→放等宽条
+// For each white cell: if it's wider, place an equal-height strip; if it's taller, place an equal-width strip
+function addBigBlocksInWhiteAspect(opts){
+  const COLORS = ['#c63b2d', '#2a59b6', '#f2d31b']; // 红/蓝/黄 | red/blue/yellow
+  const PROB   = (opts && opts.prob)         ?? 0.55;   // 每个白块放大块的概率 | probability to place a big block in a cell
+  const MINF   = (opts && opts.minFrac)      ?? 0.35;   // 尺寸下限（相对白块宽/高）| min fraction of cell size
+  const MAXF   = (opts && opts.maxFrac)      ?? 0.85;   // 尺寸上限 | max fraction of cell size
+  const THR    = (opts && opts.aspectThresh) ?? 1.15;   // 宽高比阈值 | aspect ratio threshold
+
+  noStroke();
+  bigBlocks = []; // 重新生成前清空记录 | clear the list before generating
+
+  for (let r = 0; r < ROWS; r++){
+    for (let c = 0; c < COLS; c++){
+      if (random() > PROB) continue;  // 按概率跳过 | skip based on probability
+
+      const x = xs[c], y = ys[r];
+      const w = colW[c], h = rowH[r];
+      const ratioW = w / h; // 宽高比 | width/height
+      const ratioH = h / w; // 高宽比 | height/width
+
+      const color = random(COLORS);
+      fill(color);
+
+      if (ratioW >= THR) {
+        // 更宽：放“等高条”（高度 = h，宽度在 [MINF*w, MAXF*w] 内随机）  
+        // Wider cell: place an equal-height strip (height=h, random width in [MINF*w, MAXF*w])
+        const ww = random(MINF * w, MAXF * w);
+        const xx = x + random(0, w - ww);   // 在 cell 内水平随机偏移 | random horizontal offset inside cell
+        rect(xx, y, ww, h);
+        bigBlocks.push({ x: xx, y, w: ww, h, color, mode: 'equalHeight' });
+
+      } else if (ratioH >= THR) {
+        // 更高：放“等宽条”（宽度 = w，高度在 [MINF*h, MAXF*h] 内随机）  
+        // Taller cell: place an equal-width strip (width=w, random height in [MINF*h, MAXF*h])
+        const hh = random(MINF * h, MAXF * h);
+        const yy = y + random(0, h - hh);   // 在 cell 内垂直随机偏移 | random vertical offset inside cell
+        rect(x, yy, w, hh);
+        bigBlocks.push({ x, y: yy, w, h: hh, color, mode: 'equalWidth' });
+
+      } else {
+        // 近似正方形：随机选择等高或等宽的方式
+        // Near-square cell: randomly choose between equal-height and equal-width
+        if (random() < 0.5) {
+          const ww = random(MINF * w, MAXF * w);
+          const xx = x + random(0, w - ww);
+          rect(xx, y, ww, h);
+          bigBlocks.push({ x: xx, y, w: ww, h, color, mode: 'equalHeight' });
+        } else {
+          const hh = random(MINF * h, MAXF * h);
+          const yy = y + random(0, h - hh);
+          rect(x, yy, w, hh);
+          bigBlocks.push({ x, y: yy, w, h: hh, color, mode: 'equalWidth' });
+        }
+      }
+    }
+  }
+}
+
+// 在彩色大方块内部，按“相反规则”生成二次方块：
+// 首次 equalHeight → 二次 equalWidth；首次 equalWidth → 二次 equalHeight
+// Inside each colored big block, generate a second block with the opposite rule:
+// first equalHeight → second equalWidth; first equalWidth → second equalHeight
+function overlayInsideBigBlocks(opts){
+  const COLORS = ['#c63b2d', '#2a59b6', '#f2d31b']; // 红/蓝/黄 | red/blue/yellow
+  const MINF   = (opts && opts.minFrac)  ?? 0.35;
+  const MAXF   = (opts && opts.maxFrac)  ?? 0.85;
+  const PROB2  = (opts && opts.prob)     ?? 0.55;      // 二次方块出现的概率 | probability for overlay blocks
+  const MAXN   = (opts && opts.maxCount) ?? Infinity;  // 最多生成的二次方块数量 | overall maximum overlay count
+
+  noStroke();
+  let made = 0;
+
+  for (const b of bigBlocks){
+    if (made >= MAXN) break;       // 达到总数上限就停止 | stop if we reached max overlay count
+    if (random() > PROB2) continue; // 按概率跳过 | skip block based on probability
+
+    // 二次方块颜色必须与原块不同
+    // Overlay block color must differ from the original block
+    const altChoices = COLORS.filter(c => c !== b.color);
+    const alt = random(altChoices);
+    fill(alt);
+
+    if (b.mode === 'equalHeight'){
+      // 首次为等高条 → 二次改为等宽条（宽固定，随机高度）
+      // First was equal-height → now equal-width (width fixed, random height)
+      const hh = random(MINF * b.h, MAXF * b.h);
+      const yy = b.y + random(0, b.h - hh);  // 在原块内部随机位置 | random vertical position inside original
+      rect(b.x, yy, b.w, hh);
+    } else { // b.mode === 'equalWidth'
+      // 首次为等宽条 → 二次改为等高条（高固定，随机宽度）
+      // First was equal-width → now equal-height (height fixed, random width)
+      const ww = random(MINF * b.w, MAXF * b.w);
+      const xx = b.x + random(0, b.w - ww);  // 在原块内部随机位置 | random horizontal position inside original
+      rect(xx, b.y, ww, b.h);
+    }
+
+    made++;
   }
 }
