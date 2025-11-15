@@ -38,6 +38,12 @@ function setup(){
   drawScene();      // 初次绘制场景 | Initial rendering
 }
 
+// 键盘按下 r/R 时重新生成整张图
+// Press r/R to redraw the scene with fresh randomness
+function keyPressed(){ 
+  if(key === 'r' || key === 'R') drawScene(); 
+}
+
 function drawScene(){
   // 黄色背景
   // Yellow background
