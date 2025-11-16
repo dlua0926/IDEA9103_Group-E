@@ -38,7 +38,7 @@ function setup(){
   drawScene(); // 初次绘制静态场景
 }
 
-//  每帧都会执行，用来做动画
+// 每帧都会执行，用来做动画
 function draw() {
   const t = frameCount * 0.02; // 时间参数，用于 Perlin noise
   animateBigBlocks(t);
@@ -416,10 +416,10 @@ function overlayInsideBigBlocks(opts){
   }
 }
 
-/动画部分：Perlin Noise + Randomness/
+/动画部分：Perlin Noise + Randomness /
 
 // 使用 Perlin noise + random() 对 bigBlocks 做动画
-// - Perlin noise：让缩放 & 位移平滑变化
+// - Perlin noise：让缩放 & 位移平滑变化（呼吸感）
 // - random()：让颜色偶尔随机闪一下，体现“随机性”
 function animateBigBlocks(t) {
   if (!bigBlocks || bigBlocks.length === 0) return;
