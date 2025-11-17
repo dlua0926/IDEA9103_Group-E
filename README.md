@@ -1,88 +1,43 @@
-# README
+Group E
+1. Instructions for Interaction
+Load: Open index.html in a browser. The generative grid and animation will load immediately.
 
-## 1. How to run and interact with the work
+Play/Pause: Press the P key to toggle the animation on or off.
 
-Mouse movement  
-Move the mouse over the canvas: a blue-black “black hole” follows the cursor.
+Regenerate: Press the R key to generate a completely new city layout and reset the game agents.
 
-Mouse wheel  
-Scroll up/down while the cursor is over the canvas to change the black hole radius.
+2. Animation Approach & Individual Contribution
+Animation Driver
+My implementation is driven by Time. I used millis() to calculate time deltas, ensuring smooth movement and consistent event cycling (e.g., Ghost mode switching) regardless of the frame rate.
 
-Road squares  
-Small coloured squares (red/blue/grey) move along the yellow gaps like traffic.  
-When they enter the black hole radius, they disappear (get “swallowed”).
+Unique Aspects & Collaboration
+While the group established the foundational grid generator, my individual contribution focused on Agent-based Logic:
 
-Speed slider  
-Below the canvas there is a slider labelled Speed Change.  
-Drag it to make all moving squares slower or faster (0×–3×).
+My Focus: Unlike other group members who animated visual properties like Color Shifting or Block Resizing, my work keeps the grid static but introduces moving agents (Pac-Man and Ghosts) that navigate the generated "roads."
 
-Keyboard  
+Differentiation: This contrasts with teammates who modified the grid geometry itself. My approach treats the group's generated art as a "level map" for a narrative element.
 
-R – regenerate a new layout (new grid, gaps, blocks, agents).  
+Inspiration
+Visuals: Broadway Boogie Woogie (Piet Mondrian). The yellow lines in the original painting resemble city streets, which naturally suggested a Pac-Man maze.
 
-E – pause / resume the movement of all road squares.
+Mechanics: Classic Arcade movement. The "jittery" nature of the original painting's small squares inspired the scattered movement of the Ghosts.
 
----
+3. Technical Implementation
+How it Works
+Map Generation: The sketch.js file generates a weighted grid, storing the coordinates of "roads" (yellow gaps) in global arrays (xs, ys, gapX, gapY).
 
-## 2. My approach to animating the group image
+Agent Navigation: The PacmanModule in timebased.js reads these coordinates. Agents do not move freely; they are constrained to the specific x and y values of the generated roads.
 
-The group work in sketch.js creates a static composition:
+Intersection Logic: As agents move, the code constantly checks if they are crossing an intersection. If so, a probability factor (15%) determines if they should turn onto a perpendicular road.
 
-10×10 white grid on a yellow background  
+Modifications to Group Code
+I encapsulated the animation logic into a separate file (timebased.js) using the Module Pattern (IIFE).
 
-random yellow gaps with small coloured squares  
+Why: This prevents variable conflicts with the main sketch.js file and keeps the "Game Logic" separate from the "Art Generation."
 
-large red/blue/yellow blocks inside cells, based on aspect ratio  
+Modifications: I added global window assignments in sketch.js (e.g., window.colW = colW) to allow the external module to access the generated layout data.
 
-In userinput.js, my personal contribution is:
+External Techniques
+Technique: JavaScript Module Pattern (IIFE).
 
-Turn the static gap squares into moving agents (roadSquares) that travel along the yellow gaps.  
-
-Introduce a mouse-controlled black hole that removes agents when they get too close.  
-
-Add interactive control (speed slider, pause, radius change).
-
----
-
-## 3. Animation driver: User Input
-
-User interaction as the primary driver:
-
-The mouse position controls where the black hole is.  
-
-Mouse wheel controls its radius.  
-
-Keyboard keys control regeneration and pause.  
-
-Slider controls global speed.
-
----
-
-## 4. What properties are animated, and how is my work different?
-
-Position along the gaps、Existence / Disappearance、Black hole appearance、speed  
-
-My primary focus was on the “road” layer, where I designed the small blocks to flow across the gaps like traffic, and implemented an “absorption” interaction through black holes. This approach differentiated my work from my teammates' by going beyond merely altering the blocks' colors or sizes.
-
----
-
-## 5. References and visual inspiration
-
-I drew inspiration from black hole visualizations, transit network diagrams, and minimalist game UIs, abstracting these visual impressions into an interactive solution featuring a black hole and flowing cubes.
-
----
-
-## 6. How the code animates the image
-
-Static images consist of group-generated grids and color blocks. I added a layer of “road tiles + black holes” logic on top, achieving animation and interaction through frame-by-frame updates and conditional deletions.
-
----
-
-## 7. External tools, techniques, and copied code
-
-p5.js reference  
-I used the official p5.js reference to understand and confirm:  
-createCanvas(), resizeCanvas(), background(), rect(), ellipse()  
-random(), constrain(), frameCount  
-DOM functions: createSlider(), createSpan(), position()  
-Events: keyPressed(), mouseWheel(), windowResized()
+Source/Reasoning: Standard JavaScript design pattern. I used this to ensure my animation variables (like ghostMode or mouthTimer) did not pollute the global scope shared with my group members' code.

@@ -23,25 +23,60 @@ let colW = [], rowH = [];
 let gapX = [], gapY = [];  // jittered gaps
 let xs = [], ys = [];      // start positions of each col/row (no outer margin)
 let bigBlocks = [];        // stores generated large color blocks, for second-layer blocks
+let sceneBuffer = null;    // Cached scene to avoid redrawing every frame
+
+// Make these globally accessible for PacmanModule
+window.colW = colW;
+window.rowH = rowH;
+window.gapX = gapX;
+window.gapY = gapY;
+window.xs = xs;
+window.ys = ys;
+window.COLS = COLS;
+window.ROWS = ROWS;
+window.W = W;
+window.H = H;
 
 
 function setup(){
   createCanvas(W, H);
-  // Disable auto-loop, draw only when called
+  // Disable auto-loop initially
   noLoop();
   // Initial rendering
   drawScene();
+  // Initialize Pacman module after scene is drawn
+  if (window.PacmanModule) {
+    PacmanModule.initialize();
+  }
 }
 
 // Press r/R to redraw the scene with fresh randomness
 function keyPressed(){ 
-  if (key === 'r' || key === 'R') drawScene(); 
+  if (key === 'r' || key === 'R') {
+    drawScene();
+    // Reinitialize Pacman after redraw
+    if (window.PacmanModule) {
+      PacmanModule.stopAnimation();
+      PacmanModule.initialize();
+    }
+  }
+  return false;
+}
+
+// Draw function to support Pacman animation
+function draw() {
+  if (window.PacmanModule && PacmanModule.isAnimating()) {
+    // Draw cached scene
+    if (sceneBuffer) {
+      image(sceneBuffer, 0, 0);
+    }
+    // Update and draw Pacman and ghosts on top
+    PacmanModule.update();
+    PacmanModule.draw();
+  }
 }
 
 function drawScene(){
-  // Yellow background
-  background('#f2d31b');
-
   // 1) Generate small random gap values for each vertical/horizontal gap
   gapX = new Array(COLS-1).fill(0).map(()=> GAP_X_BASE + random(-GAP_X_DELTA, GAP_X_DELTA));
   gapY = new Array(ROWS-1).fill(0).map(()=> GAP_Y_BASE + random(-GAP_Y_DELTA, GAP_Y_DELTA));
@@ -54,13 +89,13 @@ function drawScene(){
   const availH = H - sumGapY;
 
   // 3) Randomly allocate column widths and row heights (sum strictly equals available size)
-  const posW = positionWeights(COLS, CENTER_POWER); // weights for wider center columns
+  const posW = positionWeights(COLS, CENTER_POWER);
   randomizeWithBias(colW, COLS, availW, COL_MIN, COL_MAX, COL_SPREAD, posW);
 
-  const posR = positionWeights(ROWS, ROW_CENTER_POWER); // weights for taller center rows
+  const posR = positionWeights(ROWS, ROW_CENTER_POWER);
   randomizeWithBias(rowH, ROWS, availH, ROW_MIN, ROW_MAX, ROW_SPREAD, posR);
 
-  // 4) Compute starting x/y for each col/row (from 0 to canvas edge)
+  // 4) Compute starting x/y for each col/row
   xs = new Array(COLS); 
   ys = new Array(ROWS);
 
@@ -76,47 +111,36 @@ function drawScene(){
     y += rowH[r] + (r < ROWS-1 ? gapY[r] : 0);
   }
 
-  // 5) Draw the 10×10 grid of white rectangles
-  noStroke(); 
-  fill('#ffffff');
+  // Create off-screen buffer
+  sceneBuffer = createGraphics(W, H);
+  sceneBuffer.background('#f2d31b');
+
+  // Draw white grid to buffer
+  sceneBuffer.noStroke(); 
+  sceneBuffer.fill('#ffffff');
   for (let r = 0; r < ROWS; r++){
     for (let c = 0; c < COLS; c++){
-      rect(xs[c], ys[r], colW[c], rowH[r]);
+      sceneBuffer.rect(xs[c], ys[r], colW[c], rowH[r]);
     }
   }
 
-  // 5) Draw another layer of 10×10 white rectangles (same as above)
-  noStroke(); 
-  fill('#ffffff');
-  for (let r = 0; r < ROWS; r++){
-    for (let c = 0; c < COLS; c++){
-      rect(xs[c], ys[r], colW[c], rowH[r]);
-    }
-  }
+  // Draw colored elements using buffer-aware functions
+  sprinkleColorInGapsToBuffer(sceneBuffer);
+  linkWhiteBlocksToBuffer(sceneBuffer, 12);
+  addBigBlocksToBuffer(sceneBuffer, { prob: 0.55, minFrac: 0.35, maxFrac: 0.85, aspectThresh: 1.15 });
+  overlayBlocksToBuffer(sceneBuffer, { prob: 0.20, minFrac: 0.35, maxFrac: 0.85 });
 
-  // 6) Sprinkle red/blue/grey small squares in the yellow gaps
-  sprinkleColorInGaps();
+  // Draw to main canvas
+  image(sceneBuffer, 0, 0);
 
-  // 7) Use white to connect some adjacent white cells, covering a number of gaps
-  linkWhiteBlocks(12);   // adjustable number of connections
-
-  // 8) Add big colored blocks inside each white cell depending on aspect ratio
-  addBigBlocksInWhiteAspect({ 
-    prob: 0.55, 
-    minFrac: 0.35, 
-    maxFrac: 0.85, 
-    aspectThresh: 1.15 
-  });
-
-  // 9) Inside these big blocks, generate a second layer with the opposite rule
-  //    (if first block was equal-height, second is equal-width, and vice versa)
-  overlayInsideBigBlocks({ 
-    prob: 0.20,        // ~20% chance of overlay per big block
-    minFrac: 0.35, 
-    maxFrac: 0.85 
-  });
+  // Sync globals
+  window.colW = colW;
+  window.rowH = rowH;
+  window.gapX = gapX;
+  window.gapY = gapY;
+  window.xs = xs;
+  window.ys = ys;
 }
-
 
 /*
   Place square colored blocks in yellow gaps:
@@ -363,6 +387,139 @@ function overlayInsideBigBlocks(opts){
       rect(xx, b.y, ww, b.h);
     }
 
+    made++;
+  }
+}
+
+// Buffer versions of drawing functions
+function sprinkleColorInGapsToBuffer(buf){
+  const COLORS = ['#c63b2d', '#2a59b6', '#bfbfbf'];
+  const V_GAP_MIN = 8, V_GAP_MAX = 28;
+  const H_GAP_MIN = 8, H_GAP_MAX = 28;
+
+  buf.noStroke();
+  for (let c = 0; c < COLS - 1; c++) {
+    const x0 = xs[c] + colW[c];
+    const w = gapX[c];
+    const s = w;
+    let y = 0;
+    while (y + s <= H) {
+      if (random() < 0.65) {
+        buf.fill(random(COLORS));
+        buf.rect(x0, y, s, s);
+      }
+      y += s + random(V_GAP_MIN, V_GAP_MAX);
+    }
+  }
+  for (let r = 0; r < ROWS - 1; r++) {
+    const y0 = ys[r] + rowH[r];
+    const h = gapY[r];
+    const s = h;
+    let x = 0;
+    while (x + s <= W) {
+      if (random() < 0.65) {
+        buf.fill(random(COLORS));
+        buf.rect(x, y0, s, s);
+      }
+      x += s + random(H_GAP_MIN, H_GAP_MAX);
+    }
+  }
+}
+
+function linkWhiteBlocksToBuffer(buf, count){
+  buf.noStroke();
+  buf.fill('#ffffff');
+  for (let k = 0; k < count; k++){
+    if (random() < 0.5) {
+      const r = int(random(0, ROWS));
+      const c = int(random(0, COLS-1));
+      const x0 = xs[c] + colW[c];
+      const y0 = ys[r];
+      const w = gapX[c];
+      const h = rowH[r];
+      buf.rect(x0, y0, w, h);
+    } else {
+      const c = int(random(0, COLS));
+      const r = int(random(0, ROWS-1));
+      const x0 = xs[c];
+      const y0 = ys[r] + rowH[r];
+      const w = colW[c];
+      const h = gapY[r];
+      buf.rect(x0, y0, w, h);
+    }
+  }
+}
+
+function addBigBlocksToBuffer(buf, opts){
+  const COLORS = ['#c63b2d', '#2a59b6', '#f2d31b'];
+  const PROB = (opts && opts.prob) ?? 0.55;
+  const MINF = (opts && opts.minFrac) ?? 0.35;
+  const MAXF = (opts && opts.maxFrac) ?? 0.85;
+  const THR = (opts && opts.aspectThresh) ?? 1.15;
+
+  buf.noStroke();
+  bigBlocks = [];
+
+  for (let r = 0; r < ROWS; r++){
+    for (let c = 0; c < COLS; c++){
+      if (random() > PROB) continue;
+      const x = xs[c], y = ys[r];
+      const w = colW[c], h = rowH[r];
+      const ratioW = w / h;
+      const color = random(COLORS);
+      buf.fill(color);
+
+      if (ratioW >= THR) {
+        const ww = random(MINF * w, MAXF * w);
+        const xx = x + random(0, w - ww);
+        buf.rect(xx, y, ww, h);
+        bigBlocks.push({ x: xx, y, w: ww, h, color, mode: 'equalHeight' });
+      } else if (ratioW <= 1/THR) {
+        const hh = random(MINF * h, MAXF * h);
+        const yy = y + random(0, h - hh);
+        buf.rect(x, yy, w, hh);
+        bigBlocks.push({ x, y: yy, w, h: hh, color, mode: 'equalWidth' });
+      } else {
+        if (random() < 0.5) {
+          const ww = random(MINF * w, MAXF * w);
+          const xx = x + random(0, w - ww);
+          buf.rect(xx, y, ww, h);
+          bigBlocks.push({ x: xx, y, w: ww, h, color, mode: 'equalHeight' });
+        } else {
+          const hh = random(MINF * h, MAXF * h);
+          const yy = y + random(0, h - hh);
+          buf.rect(x, yy, w, hh);
+          bigBlocks.push({ x, y: yy, w, h: hh, color, mode: 'equalWidth' });
+        }
+      }
+    }
+  }
+}
+
+function overlayBlocksToBuffer(buf, opts){
+  const COLORS = ['#c63b2d', '#2a59b6', '#f2d31b'];
+  const MINF = (opts && opts.minFrac) ?? 0.35;
+  const MAXF = (opts && opts.maxFrac) ?? 0.85;
+  const PROB2 = (opts && opts.prob) ?? 0.55;
+
+  buf.noStroke();
+  let made = 0;
+
+  for (const b of bigBlocks){
+    if (random() > PROB2) continue;
+    const altChoices = COLORS.filter(c => c !== b.color);
+    const alt = random(altChoices);
+    buf.fill(alt);
+
+    if (b.mode === 'equalHeight'){
+      const hh = random(MINF * b.h, MAXF * b.h);
+      const yy = b.y + random(0, b.h - hh);
+      buf.rect(b.x, yy, b.w, hh);
+    } else {
+      const ww = random(MINF * b.w, MAXF * b.w);
+      const xx = b.x + random(0, b.w - ww);
+      buf.rect(xx, b.y, ww, b.h);
+    }
     made++;
   }
 }
