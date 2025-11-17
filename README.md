@@ -4,10 +4,11 @@
 
 ### Run
 
-1. Download or clone this repo.
-2. Simply **open `index.html` in a browser**.
-   - No extra server / terminal commands are required for marking.
-   - `index.html` is set up to load the p5.js sketches.
+1. Open this project folder in **VS Code**.
+2. Install the **Live Server** extension (if you don’t have it).
+3. Right‑click on `index.html` and choose **“Open with Live Server”**.
+4. The browser will open (usually at `http://127.0.0.1:5500/` or similar) and load the sketch.
+   - No extra terminal commands are required; Live Server handles the local server.
 
 ### Interaction Instructions
 
