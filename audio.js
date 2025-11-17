@@ -1,35 +1,47 @@
 // ========== Audio-Driven Animation Module ==========
-// 音频驱动动画模块 - IDEA9103 Individual Task
 // Audio-Driven Animation Module - IDEA9103 Individual Task
 //
-// 功能说明 Features:
-// 1. 音频振幅控制方块大小 (Audio amplitude controls square sizes)
-// 2. 音频频率影响颜色饱和度/亮度 (Audio frequency affects color saturation/brightness)
-// 3. 节拍检测触发视觉效果 (Beat detection triggers visual effects)
-// 4. 实时音频可视化交互 (Real-time audio visualization interaction)
+// This file is my INDIVIDUAL submission for the "Audio" animation method.
+// It reuses the group Mondrian-style grid logic and adds an audio-reactive layer.
+//
+// Features:
+// 1. Audio amplitude controls square sizes.
+// 2. Audio frequency content affects color brightness per band (bass/mid/treble).
+// 3. Beat detection triggers global flash/pulse effects.
+// 4. Real-time audio visualization on top of the group composition.
+//
+// NOTE / DECLARATION (for assignment documentation):
+// - This code is based on our group's grid code (sketch.js) written in class and by the group.
+// - Audio analysis (FFT, Amplitude, PeakDetect) uses the official p5.sound library:
+//   https://p5js.org/reference/#/libraries/p5.sound
+// - I used GitHub Copilot (model GPT-5.1 (Preview)) to help with some comments and structuring,
+//   but I checked and edited all logic to ensure I understand how it works.
+// - Any technique that comes directly from examples or documentation is referenced in comments.
+//
+// IMPORTANT TECHNICAL NOTE:
+// This file requires p5.js and the p5.sound library to be loaded in the HTML, for example:
+//   <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.7.0/p5.js"></script>
+//   <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.7.0/addons/p5.sound.min.js"></script>
+//   <script src="audio.js"></script>
 
 const W = 900, H = 900;
 const COLS = 10, ROWS = 10;
 
-// —— 基础间距与抖动 ——
-// Base spacing and jitter
+// Base spacing and jitter for the yellow gaps between white blocks
 const GAP_X_BASE = 15, GAP_Y_BASE = 15;
 const GAP_X_DELTA = 3,  GAP_Y_DELTA = 3;
 
-// 白色方块尺寸范围
-// White cell size range
+// White cell size range (column width / row height)
 const COL_MIN = 20,  COL_MAX = 280;
 const ROW_MIN = 40,  ROW_MAX = 140;
 
-// 列宽/行高分布参数
-// Column/row distribution parameters
+// Column/row distribution parameters to bias sizes towards the center
 const CENTER_POWER = 2.2;
 const COL_SPREAD   = 2.0;
 const ROW_CENTER_POWER = 2.0;
 const ROW_SPREAD       = 1.5;
 
-// 几何数据
-// Geometry data
+// Geometry data for the Mondrian-like grid
 let colW = [], rowH = [];
 let gapX = [], gapY = [];
 let xs = [], ys = [];
@@ -37,93 +49,98 @@ let bigBlocks = [];
 let colorBlocks = [];
 let connectors = [];
 
-// 道路方块数据（用于音频驱动动画）
-// Road squares data (for audio-driven animation)
+// Road squares data (small moving squares in yellow gaps, audio-reactive)
 let roadSquares = [];
 
-// ========== 音频相关变量 Audio Variables ==========
-let song;                    // 音频文件 Audio file
-let fft;                     // FFT频谱分析器 FFT analyzer
-let amplitude;               // 振幅分析器 Amplitude analyzer
-let peakDetect;              // 节拍检测器 Beat detector
+// ========== Audio Variables ==========
+// p5.sound objects:
+// - song: loaded sound file
+// - fft: spectrum analyzer (p5.FFT)
+// - amplitude: global volume analyzer (p5.Amplitude)
+// - peakDetect: beat detector (p5.PeakDetect, low-frequency)
+let song;
+let fft;
+let amplitude;
+let peakDetect;
 
-// 本地音频文件列表
-// Local audio file list
-// 说明：请将音乐文件放在 assets/ 文件夹中，命名为 music1.mp3, music2.mp3, music3.mp3
-// Instructions: Place music files in assets/ folder, named as music1.mp3, music2.mp3, music3.mp3
+// Local audio file list.
+//
+// IMPORTANT: For local files, place MP3 files in an `assets/` folder at the project root:
+//   /assets/music1.mp3
+//   /assets/music2.mp3
+//   /assets/music3.mp3
+// You can also swap these URLs to online MP3s if needed for testing.
 const AUDIO_TRACKS = [
   {
     name: 'Track 1',
     url: 'assets/music1.mp3',
-    description: '游戏音乐 1 | Game music 1'
+    description: 'Game music 1'
   },
   {
     name: 'Track 2',
     url: 'assets/music2.mp3',
-    description: '游戏音乐 2 | Game music 2'
+    description: 'Game music 2'
   },
   {
     name: 'Track 3',
     url: 'assets/music3.mp3',
-    description: '游戏音乐 3 | Game music 3'
+    description: 'Game music 3'
   }
 ];
 
-let currentTrackIndex = 0;   // 当前音轨索引 Current track index
+let currentTrackIndex = 0;   // Current audio track index
 
-// 音频状态
-// Audio state
-let audioStarted = false;    // 音频是否已开始 Audio started flag
-let beatFlash = 0;           // 节拍闪光效果强度 Beat flash intensity
-let audioLoading = false;    // 音频是否正在加载 Audio loading flag
+// Audio / animation state
+let audioStarted = false;    // Whether audio playback has started
+let beatFlash = 0;           // Global beat flash intensity (0–1)
+let audioLoading = false;    // Whether an audio track is currently loading
 
-// UI元素
-// UI elements
-let playButton;              // 播放/暂停按钮 Play/Pause button
-let nextButton;              // 下一首按钮 Next track button
-let volumeSlider;            // 音量滑块 Volume slider
-let volumeLabel;             // 音量标签 Volume label
-let statusLabel;             // 状态标签 Status label
-let trackLabel;              // 音轨信息标签 Track info label
+// UI elements (p5.dom)
+let playButton;              // Play/Pause button
+let nextButton;              // Next track button
+let volumeSlider;            // Volume slider
+let volumeLabel;             // Volume label
+let statusLabel;             // Status label for messages
+let trackLabel;              // Track info label
 
-// 音频响应参数
 // Audio response parameters
-const AMPLITUDE_SCALE = 3.0;     // 振幅缩放系数 Amplitude scale factor
-const FREQ_BANDS = 4;            // 频段数量 Number of frequency bands
-const BEAT_THRESHOLD = 0.15;     // 节拍检测阈值 Beat detection threshold
-const BEAT_DECAY = 0.92;         // 节拍效果衰减 Beat effect decay rate
+const AMPLITUDE_SCALE = 3.0;     // Amplitude scale factor for size changes
+const FREQ_BANDS = 4;            // Not used directly, but kept as a configurable constant
+const BEAT_THRESHOLD = 0.15;     // Beat detection threshold for PeakDetect
+const BEAT_DECAY = 0.92;         // Beat flash decay rate per frame
 
-// 频段颜色映射（用于音频可视化）
-// Frequency band color mapping (for audio visualization)
+// Frequency band color mapping (for explanation / reference)
 const FREQ_COLORS = {
-  bass: '#c63b2d',      // 低频 - 红色 Bass - Red
-  mid: '#2a59b6',       // 中频 - 蓝色 Mid - Blue
-  high: '#bfbfbf'       // 高频 - 灰色 High - Grey
+  bass: '#c63b2d',      // Bass → red
+  mid: '#2a59b6',       // Mid → blue
+  high: '#bfbfbf'       // Treble → grey
 };
 
-// ========== p5.js 设置 Setup ==========
+// ========== p5.js Setup ==========
+// Standard p5.js setup: create canvas, initialize audio analyzers and UI, generate layout.
 function setup(){
   const size = calcCanvasSize();
   createCanvas(size, size);
   
-  // 初始化音频分析器
-  // Initialize audio analyzers
-  fft = new p5.FFT(0.8, 256);      // 平滑度0.8，256个频段 Smoothness 0.8, 256 bins
+  // Initialize audio analyzers (p5.sound)
+  // NOTE: Using p5.FFT, p5.Amplitude, p5.PeakDetect as documented here:
+  // https://p5js.org/reference/#/libraries/p5.sound
+  fft = new p5.FFT(0.8, 256);      // Smoothness 0.8, 256 FFT bins
   amplitude = new p5.Amplitude();
-  peakDetect = new p5.PeakDetect(20, 250, BEAT_THRESHOLD); // 低频节拍检测 Low freq beat detection
+  // PeakDetect for low-frequency beat detection (approx. 20–250 Hz)
+  peakDetect = new p5.PeakDetect(20, 250, BEAT_THRESHOLD);
   
-  // 创建UI控件
-  // Create UI controls
+  // Create custom UI controls (buttons, slider, labels)
   createAudioControls();
   
-  // 生成布局
-  // Generate layout
+  // Generate initial Mondrian-like layout
   createNewLayout();
   
-  noLoop(); // 暂停循环，等待用户交互 Pause loop, wait for user interaction
+  // Do not loop until the user presses Play
+  noLoop();
 }
 
-// ========== 计算画布尺寸 Calculate Canvas Size ==========
+// Compute canvas size based on window size, with a maximum of 900x900
 function calcCanvasSize(){
   let maxSize = 900;
   let size = min(windowWidth - 40, windowHeight - 180, maxSize);
@@ -131,18 +148,18 @@ function calcCanvasSize(){
   return size;
 }
 
-// ========== 窗口尺寸调整 Window Resized ==========
+// Handle window resizing and move UI elements accordingly
 function windowResized(){
   const size = calcCanvasSize();
   resizeCanvas(size, size);
   updateControlPositions();
 }
 
-// ========== 创建音频控件 Create Audio Controls ==========
+// Create audio-related UI controls (p5.dom)
+// NOTE: This is standard p5.dom usage, not from external tutorials.
 function createAudioControls(){
   const y = height + 20;
   
-  // 播放/暂停按钮
   // Play/Pause button
   playButton = createButton('▶️ Play Music');
   playButton.position(20, y);
@@ -155,7 +172,6 @@ function createAudioControls(){
   playButton.style('border', 'none');
   playButton.style('border-radius', '4px');
   
-  // 下一首按钮
   // Next track button
   nextButton = createButton('⏭️ Next Track');
   nextButton.position(150, y);
@@ -168,20 +184,17 @@ function createAudioControls(){
   nextButton.style('border', 'none');
   nextButton.style('border-radius', '4px');
   
-  // 音量控制标签
-  // Volume control label
+  // Volume label
   volumeLabel = createSpan('Volume');
   volumeLabel.position(300, y + 3);
   volumeLabel.style('font-size', '12px');
   volumeLabel.style('font-family', 'sans-serif');
   
-  // 音量滑块
-  // Volume slider
+  // Volume slider (0–100)
   volumeSlider = createSlider(0, 100, 50);
   volumeSlider.position(360, y);
   volumeSlider.style('width', '100px');
   
-  // 音轨信息标签
   // Track info label
   trackLabel = createDiv('');
   trackLabel.position(20, y + 40);
@@ -189,20 +202,18 @@ function createAudioControls(){
   trackLabel.style('font-family', 'sans-serif');
   trackLabel.style('color', '#333');
   
-  // 状态显示标签
   // Status label
-  statusLabel = createSpan('Press Play to start | 按播放键开始 (R: reset)');
+  statusLabel = createSpan('Press Play to start | R: reset layout, Space: play/pause');
   statusLabel.position(480, y + 3);
   statusLabel.style('font-size', '13px');
   statusLabel.style('font-family', 'sans-serif');
   statusLabel.style('color', '#666');
   
-  // 自动加载第一首音乐
-  // Auto-load first track
+  // Auto-load first track (but do not auto-play)
   loadTrack(currentTrackIndex);
 }
 
-// ========== 更新控件位置 Update Control Positions ==========
+// Update UI positions after canvas resize
 function updateControlPositions(){
   const y = height + 20;
   if (playButton) playButton.position(20, y);
@@ -213,18 +224,18 @@ function updateControlPositions(){
   if (statusLabel) statusLabel.position(480, y + 3);
 }
 
-// ========== 加载音轨 Load Track ==========
+// Load a track from AUDIO_TRACKS[index] using p5.loadSound
+// NOTE: loadSound is part of p5.sound, this usage follows the p5 reference.
 function loadTrack(index){
-  if (audioLoading) return; // 防止重复加载 Prevent duplicate loading
+  if (audioLoading) return; // Avoid double-loading
   
   audioLoading = true;
   const track = AUDIO_TRACKS[index];
   
-  statusLabel.html('Loading music... | 加载音乐中...');
+  statusLabel.html('Loading music... Please wait');
   playButton.html('⏳ Loading...');
   
-  // 停止并移除旧音频
-  // Stop and remove old audio
+  // Stop and disconnect the previous song if any
   if (song) {
     if (song.isPlaying()) {
       song.stop();
@@ -232,47 +243,41 @@ function loadTrack(index){
     song.disconnect();
   }
   
-  // 加载新音频
-  // Load new audio
-  loadSound(track.url,
-    // 加载成功回调
+  // Load new audio file
+  loadSound(
+    track.url,
     // Success callback
     (loadedSound) => {
       song = loadedSound;
       
-      // 连接音频分析器（使用正确的p5.sound方式）
-      // Connect audio analyzers (correct p5.sound way)
+      // Connect audio analyzers to the new sound
       fft.setInput(song);
       amplitude.setInput(song);
-      // peakDetect 不需要 setInput，它通过 update(fft) 来分析
-      // peakDetect doesn't need setInput, it analyzes through update(fft)
+      // PeakDetect analyses the FFT via peakDetect.update(fft)
       
-      // 设置音量
-      // Set volume
+      // Set initial volume from slider
       song.setVolume(volumeSlider.value() / 100);
       
-      // 设置循环播放
-      // Set loop
+      // Loop playback (user still has to press Play to start/resume)
       song.loop();
+      song.pause(); // start paused so user controls playback explicitly
       
-      // 更新UI
-      // Update UI
       playButton.html('▶️ Play Music');
-      statusLabel.html('Music loaded! Press Play | 音乐已加载！按播放键');
-      trackLabel.html(`🎵 Track ${index + 1}/${AUDIO_TRACKS.length}: ${track.name}<br><small>${track.description}</small>`);
+      statusLabel.html('Music loaded! Press Play');
+      trackLabel.html(
+        `🎵 Track ${index + 1}/${AUDIO_TRACKS.length}: ${track.name}<br><small>${track.description}</small>`
+      );
       
       audioLoading = false;
     },
-    // 加载失败回调
     // Error callback
     (err) => {
-      statusLabel.html('Failed to load music | 加载失败，请重试');
+      statusLabel.html('Failed to load music. Will try next track.');
       playButton.html('▶️ Play Music');
       console.error('Audio load error:', err);
       audioLoading = false;
       
-      // 尝试加载下一首
-      // Try loading next track
+      // Try loading next track after a short delay
       setTimeout(() => {
         loadNextTrack();
       }, 2000);
@@ -280,11 +285,10 @@ function loadTrack(index){
   );
 }
 
-// ========== 加载下一首音轨 Load Next Track ==========
+// Load the next track in AUDIO_TRACKS
 function loadNextTrack(){
   if (audioLoading) return;
   
-  // 停止当前播放
   // Stop current playback
   if (song && song.isPlaying()) {
     song.stop();
@@ -292,70 +296,67 @@ function loadNextTrack(){
     noLoop();
   }
   
-  // 切换到下一首
-  // Switch to next track
   currentTrackIndex = (currentTrackIndex + 1) % AUDIO_TRACKS.length;
   loadTrack(currentTrackIndex);
 }
 
-// ========== 音频播放控制 Audio Play Control ==========
+// Toggle audio playback and animation on/off.
+//
+// NOTE: userStartAudio() is required by modern browsers to resume the Web Audio context
+// after a user gesture, otherwise audio may be blocked. This is recommended in p5.sound docs.
 function toggleAudio(){
   if (!song || audioLoading) {
-    statusLabel.html('Please wait for music to load | 请等待音乐加载');
+    statusLabel.html('Please wait for music to load');
     return;
   }
   
-  userStartAudio(); // 激活p5.js音频上下文 Activate p5.js audio context
+  userStartAudio(); // ensure AudioContext is started (browser autoplay policy)
   
   if (song.isPlaying()) {
-    // 暂停
-    // Pause
+    // Pause audio + animation
     song.pause();
     noLoop();
     playButton.html('▶️ Play Music');
     playButton.style('background-color', '#4CAF50');
-    statusLabel.html('Paused | 已暂停 (Space: play, R: reset)');
+    statusLabel.html('Paused (Space: play, R: reset)');
     audioStarted = false;
   } else {
-    // 播放
-    // Play
+    // Play audio + start draw loop
     song.play();
     loop();
     playButton.html('⏸️ Pause Music');
     playButton.style('background-color', '#FF5722');
-    statusLabel.html('🎵 Playing - Audio driving animation | 播放中 - 音频驱动动画');
+    statusLabel.html('Playing - Audio-driven animation');
     audioStarted = true;
   }
 }
 
-// ========== 主绘制循环 Main Draw Loop ==========
+// Main draw loop.
+//
+// This sketch uses the same grid logic as the group code, but scales it to current canvas size.
+// When audio is playing, it updates audio-driven animation; otherwise it shows a static scene.
 function draw(){
   background('#f2d31b');
   
-  // 更新音量
-  // Update volume
+  // Update volume from slider while audio is playing
   if (song && audioStarted) {
     song.setVolume(volumeSlider.value() / 100);
   }
   
-  // 缩放到当前画布大小
-  // Scale to current canvas size
+  // Scale the Mondrian coordinate system to the current canvas
   push();
   const s = width / W;
   scale(s);
   
-  // 绘制基础网格
-  // Draw base grid
+  // Base Mondrian grid (two white layers)
   drawWhiteGrid();
   
-  // 如果音频正在播放，更新音频驱动的动画
-  // If audio is playing, update audio-driven animation
+  // If audio is playing, update audio-driven animation state
   if (audioStarted && song && song.isPlaying()) {
     updateAudioDrivenAnimation();
   }
   
-  // 绘制场景元素
-  // Draw scene elements
+  // Draw moving road squares and color blocks
   drawRoadSquares();
   drawConnectors();
   drawColorBlocks();
@@ -363,90 +364,83 @@ function draw(){
   pop();
 }
 
-// ========== 音频驱动动画更新 Audio-Driven Animation Update ==========
+// Update all audio-driven state (sizes, brightness, positions).
+// This function is called every frame while audio is playing.
+//
+// Audio analysis logic is adapted from p5.sound reference examples:
+// - https://p5js.org/reference/#/p5.FFT
+// - https://p5js.org/reference/#/p5.Amplitude
+// - https://p5js.org/reference/#/p5.PeakDetect
 function updateAudioDrivenAnimation(){
-  // 获取音频数据
-  // Get audio data
-  let level = amplitude.getLevel();           // 整体振幅 0-1 Overall amplitude
-  let spectrum = fft.analyze();                // 频谱数组 Spectrum array
-  peakDetect.update(fft);                      // 更新节拍检测 Update beat detection
+  // Overall amplitude (0–1, roughly)
+  let level = amplitude.getLevel();
   
-  // 节拍检测 - 触发闪光效果
-  // Beat detection - trigger flash effect
+  // Full spectrum array (256 bins)
+  let spectrum = fft.analyze();
+  
+  // Update beat detection from the current spectrum
+  peakDetect.update(fft);
+  
+  // If a beat is detected in the low-frequency band, trigger flash
   if (peakDetect.isDetected) {
     beatFlash = 1.0;
   } else {
-    beatFlash *= BEAT_DECAY; // 衰减效果 Decay effect
+    // Exponential decay towards 0
+    beatFlash *= BEAT_DECAY;
   }
   
-  // 计算频段能量
-  // Calculate frequency band energy
-  let bass = fft.getEnergy("bass");      // 低频 60-250Hz
-  let mid = fft.getEnergy("mid");        // 中频 400-2600Hz
-  let treble = fft.getEnergy("treble");  // 高频 5200-14000Hz
+  // Compute band energies (0–255) and normalize to 0–1
+  let bass = fft.getEnergy("bass");      // ~60–250 Hz
+  let mid = fft.getEnergy("mid");        // ~400–2600 Hz
+  let treble = fft.getEnergy("treble");  // ~5200–14000 Hz
   
-  // 归一化频段能量 (0-255 → 0-1)
-  // Normalize frequency band energy (0-255 → 0-1)
   bass = map(bass, 0, 255, 0, 1);
   mid = map(mid, 0, 255, 0, 1);
   treble = map(treble, 0, 255, 0, 1);
   
-  // 更新道路方块
-  // Update road squares
+  // Update road squares (audio-reactive movement and scaling)
   for (let sq of roadSquares) {
-    // 根据颜色和频段调整方块大小
-    // Adjust square size based on color and frequency band
     let energyFactor = 1.0;
     
+    // Map each color to a different band:
     if (sq.color === '#c63b2d') {
-      // 红色方块响应低频（贝斯）
-      // Red squares respond to bass
+      // Red squares respond mainly to bass
       energyFactor = 1 + bass * AMPLITUDE_SCALE;
     } else if (sq.color === '#2a59b6') {
-      // 蓝色方块响应中频
-      // Blue squares respond to mid
+      // Blue squares respond mainly to mid frequencies
       energyFactor = 1 + mid * AMPLITUDE_SCALE;
     } else if (sq.color === '#bfbfbf') {
-      // 灰色方块响应高频
-      // Grey squares respond to treble
+      // Grey squares respond mainly to treble
       energyFactor = 1 + treble * AMPLITUDE_SCALE;
     }
     
-    // 更新方块大小（带音频响应）
-    // Update square size (with audio response)
+    // Base size scaled by energy
     sq.currentSize = sq.baseSize * energyFactor;
     
-    // 节拍时增加额外的脉冲效果
-    // Add extra pulse on beat
+    // Extra pulse on strong beats
     if (beatFlash > 0.5) {
       sq.currentSize *= (1 + beatFlash * 0.3);
     }
     
-    // 方块移动（基于原始速度）
-    // Square movement (based on original speed)
-    const moveSpeed = 0.8; // 固定移动速度 Fixed movement speed
+    // Movement along the road (constant nominal speed)
+    const moveSpeed = 0.8;
     
     if (sq.type === 'v') {
-      // 竖向道路
-      // Vertical road
+      // Vertical road: move in y direction
       sq.y += sq.speed * moveSpeed;
       if (sq.y > H) sq.y = -sq.currentSize;
       if (sq.y < -sq.currentSize) sq.y = H;
     } else {
-      // 横向道路
-      // Horizontal road
+      // Horizontal road: move in x direction
       sq.x += sq.speed * moveSpeed;
       if (sq.x > W) sq.x = -sq.currentSize;
       if (sq.x < -sq.currentSize) sq.x = W;
     }
   }
   
-  // 更新彩色大方块的颜色亮度（节拍响应）
-  // Update big block color brightness (beat response)
+  // Update big color blocks brightness based on beatFlash
   if (beatFlash > 0.3) {
     for (let block of colorBlocks) {
-      // 在节拍时增加颜色亮度
-      // Increase color brightness on beat
       block.brightnessFactor = 1 + beatFlash * 0.2;
     }
   } else {
@@ -456,13 +450,11 @@ function updateAudioDrivenAnimation(){
   }
 }
 
-// ========== 绘制白色网格 Draw White Grid ==========
+// Draw two layers of white grid rectangles (base Mondrian layout)
 function drawWhiteGrid(){
   noStroke();
   fill('#ffffff');
   
-  // 绘制两层白色网格
-  // Draw two layers of white grid
   for (let layer = 0; layer < 2; layer++) {
     for (let r = 0; r < ROWS; r++){
       for (let c = 0; c < COLS; c++){
@@ -472,21 +464,15 @@ function drawWhiteGrid(){
   }
 }
 
-// ========== 绘制道路方块 Draw Road Squares ==========
+// Draw road squares (small squares in the yellow gaps)
+// Uses sq.currentSize (audio-driven) and beatFlash for brightness.
 function drawRoadSquares(){
   noStroke();
   
   for (let sq of roadSquares) {
-    // 使用当前大小（音频驱动）
-    // Use current size (audio-driven)
     const size = sq.currentSize || sq.baseSize;
-    
-    // 计算居中位置
-    // Calculate centered position
     const offset = (sq.baseSize - size) / 2;
     
-    // 颜色亮度调整（节拍响应）
-    // Color brightness adjustment (beat response)
     let col = color(sq.color);
     if (beatFlash > 0.3) {
       const brighten = map(beatFlash, 0, 1, 0, 40);
@@ -502,7 +488,7 @@ function drawRoadSquares(){
   }
 }
 
-// ========== 绘制连接块 Draw Connectors ==========
+// Draw white connectors that merge some gaps between cells
 function drawConnectors(){
   noStroke();
   fill('#ffffff');
@@ -512,15 +498,14 @@ function drawConnectors(){
   }
 }
 
-// ========== 绘制彩色大方块 Draw Color Blocks ==========
+// Draw big colored blocks inside white cells
 function drawColorBlocks(){
   noStroke();
   
   for (let block of colorBlocks) {
     let col = color(block.color);
     
-    // 应用亮度因子（节拍响应）
-    // Apply brightness factor (beat response)
+    // Apply brightness factor (beat reactive)
     if (block.brightnessFactor && block.brightnessFactor > 1) {
       const brighten = (block.brightnessFactor - 1) * 50;
       col = color(
@@ -535,23 +520,23 @@ function drawColorBlocks(){
   }
 }
 
-// ========== 键盘控制 Keyboard Control ==========
+// Keyboard controls:
+// - R: regenerate layout (static design) and redraw
+// - Space: play/pause audio and animation
 function keyPressed(){
   if (key === 'r' || key === 'R'){
-    // 重新生成布局
-    // Regenerate layout
     createNewLayout();
     redraw();
   } else if (key === ' '){
-    // 空格键：播放/暂停
-    // Spacebar: Play/Pause
     toggleAudio();
   }
 }
 
-// ========== 生成新布局 Create New Layout ==========
+// ========== Layout generation and utility functions ==========
+// The functions below are adapted from the group code (sketch.js),
+// but are kept in this file so the audio sketch is self-contained.
+
 function createNewLayout(){
-  // 1) 生成间隙
   // Generate gaps
   gapX = new Array(COLS-1).fill(0).map(
     () => GAP_X_BASE + random(-GAP_X_DELTA, GAP_X_DELTA)
@@ -566,7 +551,6 @@ function createNewLayout(){
   const availW = W - sumGapX;
   const availH = H - sumGapY;
   
-  // 2) 分配列宽/行高
   // Allocate column widths and row heights
   const posW = positionWeights(COLS, CENTER_POWER);
   randomizeWithBias(colW, COLS, availW, COL_MIN, COL_MAX, COL_SPREAD, posW);
@@ -574,7 +558,6 @@ function createNewLayout(){
   const posR = positionWeights(ROWS, ROW_CENTER_POWER);
   randomizeWithBias(rowH, ROWS, availH, ROW_MIN, ROW_MAX, ROW_SPREAD, posR);
   
-  // 3) 计算起点坐标
   // Calculate start coordinates
   xs = new Array(COLS);
   ys = new Array(ROWS);
@@ -591,7 +574,6 @@ function createNewLayout(){
     y += rowH[r] + (r < ROWS-1 ? gapY[r] : 0);
   }
   
-  // 4) 生成场景元素
   // Generate scene elements
   connectors = [];
   bigBlocks = [];
@@ -608,7 +590,7 @@ function createNewLayout(){
   generateRoadSquares();
 }
 
-// ========== 生成道路方块 Generate Road Squares ==========
+// ========== Generate Road Squares ==========
 function generateRoadSquares(){
   const COLORS = ['#c63b2d', '#2a59b6', '#bfbfbf'];
   const V_GAP_MIN = 8,  V_GAP_MAX = 28;
@@ -616,7 +598,6 @@ function generateRoadSquares(){
   
   roadSquares = [];
   
-  // 竖向缝
   // Vertical gaps
   for (let c = 0; c < COLS - 1; c++) {
     const x0 = xs[c] + colW[c];
@@ -633,8 +614,8 @@ function generateRoadSquares(){
           type: 'v',
           x: x0,
           y: y,
-          baseSize: baseSize,       // 基础大小 Base size
-          currentSize: baseSize,    // 当前大小（音频驱动）Current size (audio-driven)
+          baseSize: baseSize,       // Base size
+          currentSize: baseSize,    // Current size (audio-driven)
           color: color,
           speed: speed
         });
@@ -643,7 +624,6 @@ function generateRoadSquares(){
     }
   }
   
-  // 横向缝
   // Horizontal gaps
   for (let r = 0; r < ROWS - 1; r++) {
     const y0 = ys[r] + rowH[r];
@@ -660,8 +640,8 @@ function generateRoadSquares(){
           type: 'h',
           x: x,
           y: y0,
-          baseSize: baseSize,       // 基础大小 Base size
-          currentSize: baseSize,    // 当前大小（音频驱动）Current size (audio-driven)
+          baseSize: baseSize,       // Base size
+          currentSize: baseSize,    // Current size (audio-driven)
           color: color,
           speed: speed
         });
@@ -671,13 +651,12 @@ function generateRoadSquares(){
   }
 }
 
-// ========== 生成连接块 Generate Connectors ==========
+// ========== Generate Connectors ==========
 function generateConnectors(count = 8){
   connectors = [];
   
   for (let k = 0; k < count; k++){
     if (random() < 0.5) {
-      // 横向连接
       // Horizontal connection
       const r = int(random(0, ROWS));
       const c = int(random(0, COLS-1));
@@ -687,7 +666,6 @@ function generateConnectors(count = 8){
       const h = rowH[r];
       connectors.push({ x: x0, y: y0, w, h });
     } else {
-      // 纵向连接
       // Vertical connection
       const c = int(random(0, COLS));
       const r = int(random(0, ROWS-1));
@@ -700,7 +678,7 @@ function generateConnectors(count = 8){
   }
 }
 
-// ========== 生成大色块 Generate Big Blocks ==========
+// ========== Generate Big Blocks ==========
 function generateBigBlocks(opts){
   const COLORS = ['#c63b2d', '#2a59b6', '#f2d31b'];
   const PROB   = opts.prob ?? 0.55;
@@ -712,7 +690,6 @@ function generateBigBlocks(opts){
   bigBlocks = [];
   colorBlocks = [];
   
-  // 第一层大色块
   // First layer of big blocks
   for (let r = 0; r < ROWS; r++){
     for (let c = 0; c < COLS; c++){
@@ -727,7 +704,6 @@ function generateBigBlocks(opts){
       let bx, by, bw, bh, mode;
       
       if (ratioW >= THR) {
-        // 等高条
         // Equal-height strip
         bw = random(MINF * w, MAXF * w);
         bh = h;
@@ -735,7 +711,6 @@ function generateBigBlocks(opts){
         by = y;
         mode = 'equalHeight';
       } else if (ratioH >= THR) {
-        // 等宽条
         // Equal-width strip
         bw = w;
         bh = random(MINF * h, MAXF * h);
@@ -743,7 +718,6 @@ function generateBigBlocks(opts){
         by = y + random(0, h - bh);
         mode = 'equalWidth';
       } else {
-        // 近似正方
         // Near-square
         if (random() < 0.5){
           bw = random(MINF * w, MAXF * w);
@@ -763,12 +737,11 @@ function generateBigBlocks(opts){
       bigBlocks.push({ x: bx, y: by, w: bw, h: bh, color, mode });
       colorBlocks.push({ 
         x: bx, y: by, w: bw, h: bh, color,
-        brightnessFactor: 1.0  // 亮度因子 Brightness factor
+        brightnessFactor: 1.0  // Brightness factor
       });
     }
   }
   
-  // 第二层叠加（相反规则）
   // Second layer overlay (opposite rule)
   for (let b of bigBlocks){
     if (random() > PROB2) continue;
@@ -778,7 +751,6 @@ function generateBigBlocks(opts){
     const alt = random(altChoices);
     
     if (b.mode === 'equalHeight'){
-      // 等高 → 等宽
       // Equal-height → Equal-width
       const hh = random(MINF * b.h, MAXF * b.h);
       const yy = b.y + random(0, b.h - hh);
@@ -787,7 +759,6 @@ function generateBigBlocks(opts){
         brightnessFactor: 1.0
       });
     } else {
-      // 等宽 → 等高
       // Equal-width → Equal-height
       const ww = random(MINF * b.w, MAXF * b.w);
       const xx = b.x + random(0, b.w - ww);
@@ -799,9 +770,8 @@ function generateBigBlocks(opts){
   }
 }
 
-// ========== 工具函数 Utility Functions ==========
+// ========== Utility Functions ==========
 
-// 位置权重
 // Position weights
 function positionWeights(n, power){
   const arr = new Array(n);
@@ -814,7 +784,6 @@ function positionWeights(n, power){
   return arr;
 }
 
-// 带偏置的随机分配
 // Random distribution with bias
 function randomizeWithBias(out, n, total, minV, maxV, spread, posW){
   const base = n * minV;
