@@ -606,4 +606,3 @@
   window.mouseWheel = mouseWheel;
 
 })(); // end IIFE
-
