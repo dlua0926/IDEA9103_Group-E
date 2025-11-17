@@ -1,20 +1,86 @@
-Group E – Broadway Boogie Woogie
+# Group E – Broadway Boogie Woogie
 
-This project is our group’s final Mondrian “Broadway Boogie Woogie” reinterpretation made with p5.js. The shared base is in `sketch.js`, which generates a 10×10 Mondrian-style grid: white rectangles, yellow “roads” (gaps), small colored squares in the gaps, and larger colored strips inside the white cells.
+## Overview
 
-Different group members then added their own animation approaches on top of this shared layout, so the same static image can come alive in multiple ways:
+This project is our group’s final reinterpretation of Piet Mondrian’s **“Broadway Boogie Woogie”** using **p5.js**.
 
-- `timebased.js`  
-  Time-based Pac-Man style agents moving on the yellow “roads”. Uses `millis()` to drive Pacman mouth animation and ghost mode switching (chase/scatter), plus probabilistic turns at intersections.
+The shared base is in `sketch.js`, which generates a **10×10 Mondrian-style grid**:
 
-- `userinput.js`  
-  Interactive version of the grid. The canvas is responsive, small squares move along the yellow gaps, and the mouse acts as a “black hole” that swallows nearby squares (mouse wheel changes radius). A speed slider and keys (`E` pause/resume, `R` reset) let the user control motion.
+- White rectangles.
+- Yellow “roads” (gaps) between blocks.
+- Small red/blue/grey squares in the yellow gaps.
+- Larger colored strips inside the white cells.
 
-- `audio.js`  
-  Audio‑driven version using the p5.sound library (FFT, Amplitude, PeakDetect). Small squares in the roads scale with bass/mid/treble energy, and big colored blocks pulse brighter on beats. UI buttons control play/pause, track switching, volume, and layout reset.
+On top of this common static layout, different group members implemented **different animation approaches**, so the same image comes alive in multiple ways.
 
-- `perlin-noise.js`  
-  Version that focuses on Perlin noise–driven animation. It keeps the same Mondrian grid but uses `noise()` together with randomness to smoothly vary properties such as block positions, sizes, or colors over time, creating organic, non-repeating motion different from the time-based, user-input, and audio versions.
+---
 
+## Modules
 
-To view the work, open the folder in VS Code, start Live Server on `index.html`, and then choose which JS module to include (time-based, user input, audio, or Perlin-noise) depending on which version you want to run. Each module keeps the group’s grid as the base and then applies a different animation method on top of it.
+### `sketch.js` – Base Group Layout
+
+- Creates the Mondrian-like 10×10 grid.
+- Uses biased randomness for column widths and row heights (center columns/rows tend to be larger).
+- Fills yellow gaps with small colored squares.
+- Adds large colored strips and second-layer overlays inside white cells.
+
+### `timebased.js` – Time-Based Animation
+
+- Pac-Man style agents moving along the yellow “roads”.
+- Uses `millis()` for:
+  - Pacman mouth animation (cyclic).
+  - Ghost mode switching (chase / scatter).
+- Uses probabilities for:
+  - Turns at intersections.
+  - Occasional U-turns.
+
+### `userinput.js` – User Input / Interaction
+
+- Interactive version of the grid:
+  - Responsive canvas (logical 900×900 space scaled to the window).
+  - Small squares moving continuously along yellow gaps.
+- Mouse:
+  - Acts as a **“black hole”** that swallows nearby squares.
+  - Mouse wheel changes black hole radius.
+- Keyboard:
+  - `E` – pause / resume motion.
+  - `R` – reset and regenerate a new layout.
+- UI:
+  - Speed slider to globally scale movement speed.
+
+### `audio.js` – Audio-Driven Animation
+
+- Uses the **p5.sound** library:
+  - `p5.FFT` for frequency spectrum.
+  - `p5.Amplitude` for overall loudness.
+  - `p5.PeakDetect` for simple beat detection.
+- Mapping:
+  - Small road squares scale with **bass / mid / treble** energy.
+  - Big colored blocks pulse brighter on detected beats (global `beatFlash`).
+- UI controls:
+  - Play / Pause button.
+  - Next Track button.
+  - Volume slider.
+  - `R` to reset layout, Space to play/pause.
+
+### `perlin-noise.js` – Perlin Noise–Driven Animation
+
+- Focuses on **Perlin noise** and randomness.
+- Keeps the same Mondrian grid, but uses `noise()` plus random values to:
+  - Smoothly vary positions, sizes, or colors over time.
+  - Create organic, non-repeating motion distinct from time-based, user-input, and audio versions.
+
+---
+
+## How to Run
+
+1. Open this project folder in **VS Code**.
+2. Install the **Live Server** extension (if not already installed).
+3. Right-click on `index.html` and choose **“Open with Live Server”**.
+4. In `index.html`, choose which JS module(s) to include:
+   - `timebased.js`
+   - `userinput.js`
+   - `audio.js`
+   - `perlin-noise.js`
+
+Each module keeps the **group’s grid (`sketch.js`) as the base**, and then applies a **different animation method** on top of it.
